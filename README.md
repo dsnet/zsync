@@ -52,8 +52,8 @@ Here is an example configuration file (adjust as appropriate):
 ```javascript
 {
 	"SSH": {
-		"KeyFiles":       ["key.priv"],
-		"KnownHostFiles": ["known_hosts"],
+		"KeyFiles":       ["/home/user/.ssh/id_rsa"],
+		"KnownHostFiles": ["/home/user/.ssh/known_hosts"],
 	},
 
 	"AutoSnapshot": {"Cron": "@daily", "Count": 7},
