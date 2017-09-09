@@ -1,0 +1,256 @@
+// Copyright 2017, The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE.md file.
+
+package main
+
+import (
+	"context"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"os/user"
+	"strings"
+	"sync"
+
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/dsnet/golib/cron"
+	"github.com/dsnet/golib/iolimit"
+)
+
+type dataset struct {
+	name   string
+	target execTarget
+}
+
+// PoolPath returns the pool path (e.g., ""//host/pool").
+func (ds dataset) PoolPath() string {
+	pool := ds.name
+	if i := strings.IndexByte(pool, '/'); i >= 0 {
+		pool = pool[:i]
+	}
+	return fmt.Sprintf("//%s/%s", ds.target.host, pool)
+}
+
+// DatasetPath returns the dataset path (e.g., "//host/pool/dataset").
+func (ds dataset) DatasetPath() string {
+	return fmt.Sprintf("//%s/%s", ds.target.host, ds.name)
+}
+
+// SnapshotPath returns the snapshot path (e.g., "//host/pool/dataset@snap").
+func (ds dataset) SnapshotPath(s string) string {
+	return fmt.Sprintf("%s@%s", ds.DatasetPath(), s)
+}
+
+// SnapshotName returns the snapshot name (e.g., "pool/dataset@snap").
+func (ds dataset) SnapshotName(s string) string {
+	return fmt.Sprintf("%s@%s", ds.name, s)
+}
+
+type zsyncer struct {
+	log *log.Logger
+	lim *iolimit.Limiter
+
+	replSema chan struct{}
+	ctx      context.Context
+	cancel   context.CancelFunc
+
+	poolMonitors     map[string]*poolMonitor
+	replicaManagers  map[string]*replicaManager
+	snapshotManagers map[string]*snapshotManager
+}
+
+func newZSyncer(conf config, logger *log.Logger) *zsyncer {
+	rate := iolimit.Inf
+	if conf.RateLimit != nil {
+		rate = float64(*conf.RateLimit)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	zs := &zsyncer{
+		log: logger,
+		lim: iolimit.NewLimiter(rate, 256<<10),
+
+		replSema: make(chan struct{}, conf.ConcurrentTransfers),
+		ctx:      ctx,
+		cancel:   cancel,
+
+		poolMonitors:     make(map[string]*poolMonitor),
+		replicaManagers:  make(map[string]*replicaManager),
+		snapshotManagers: make(map[string]*snapshotManager),
+	}
+
+	// Process SSH-related configuration options.
+	var (
+		auth       []ssh.AuthMethod
+		hostKeys   ssh.HostKeyCallback
+		keepAlive  keepAliveConfig
+		localAlias string
+	)
+
+	// Parse all of the private keys.
+	var keys []ssh.Signer
+	for _, kf := range conf.SSH.KeyFiles {
+		b, err := ioutil.ReadFile(kf)
+		if err != nil {
+			logger.Fatalf("private key error: %v", err)
+		}
+		k, err := ssh.ParsePrivateKey(b)
+		if err != nil {
+			logger.Fatalf("private key error: %v", err)
+		}
+		keys = append(keys, k)
+	}
+	if len(keys) > 0 {
+		auth = append(auth, ssh.PublicKeys(keys...))
+	}
+
+	// Parse all of the host public keys.
+	if len(conf.SSH.KnownHostFiles) == 0 && conf.SSH.KnownHostFiles != nil {
+		hostKeys = ssh.InsecureIgnoreHostKey()
+	} else if len(conf.SSH.KnownHostFiles) > 0 {
+		var err error
+		hostKeys, err = knownhosts.New(conf.SSH.KnownHostFiles...)
+		if err != nil {
+			logger.Fatalf("public key error: %v", err)
+		}
+	}
+
+	keepAlive = *conf.SSH.KeepAlive
+	localAlias = conf.SSH.LocalhostAlias
+
+	// Process each of the dataset sources and their mirrors.
+	for _, ds := range conf.Datasets {
+		makeDataset := func(dp datasetPath) dataset {
+			ds := dataset{strings.Trim(dp.Path, "/"), execTarget{host: dp.Hostname()}}
+			if host := ds.target.host; host == "localhost" || host == localAlias {
+				ds.target.host = "localhost"
+				return ds
+			}
+
+			// Setup all parameters for SSH.
+			ds.target.port = dp.Port()
+			if ds.target.port == "" {
+				ds.target.port = "22"
+			}
+			ds.target.auth = append([]ssh.AuthMethod{}, auth...)
+			ds.target.hostKeys = hostKeys
+			if dp.User != nil {
+				ds.target.user = dp.User.Username()
+				if p, ok := dp.User.Password(); ok {
+					ds.target.auth = append(ds.target.auth, ssh.Password(p))
+				}
+			} else {
+				u, err := user.Current()
+				if err != nil {
+					logger.Fatalf("unexpected error: %v", err)
+				}
+				ds.target.user = u.Username
+			}
+			ds.target.keepAlive = keepAlive
+			if len(ds.target.auth) == 0 {
+				logger.Fatal("no authentication methods specified")
+			}
+			if ds.target.hostKeys == nil {
+				logger.Fatal("no hostkey callback specified")
+			}
+			return ds
+		}
+
+		src := makeDataset(ds.Source)
+		var dsts []dataset
+		for _, dp := range ds.Mirrors {
+			dsts = append(dsts, makeDataset(dp))
+		}
+
+		cronStr, count := "", 0
+		if as := ds.AutoSnapshot; as != nil {
+			cronStr, count = as.Cron, as.Count
+		} else if as := conf.AutoSnapshot; as != nil {
+			cronStr, count = as.Cron, as.Count
+		}
+		sched, err := cron.ParseSchedule(cronStr)
+		if err != nil {
+			logger.Fatalf("could not parse: %v", err)
+		}
+
+		rate := iolimit.Inf
+		if ds.RateLimit != nil {
+			rate = float64(*ds.RateLimit)
+		}
+
+		sendFlags, recvFlags := conf.SendFlags, conf.RecvFlags
+		if ds.SendFlags != nil {
+			sendFlags = ds.SendFlags
+		}
+		if ds.RecvFlags != nil {
+			recvFlags = ds.RecvFlags
+		}
+
+		// Register the pool monitor, dataset replicator, and dataset manager.
+		if _, ok := zs.poolMonitors[src.PoolPath()]; !ok {
+			pool := src.name
+			if i := strings.IndexByte(pool, '/'); i >= 0 {
+				pool = pool[:i]
+			}
+			zs.RegisterPoolMonitor(pool, src.target)
+		}
+		zs.RegisterReplicaManager(src, dsts, rate, sendFlags, recvFlags)
+		zs.RegisterSnapshotManager(src, dsts, sched, count)
+	}
+	return zs
+}
+
+func (zs *zsyncer) Run() {
+	var wg sync.WaitGroup
+	wg.Add(len(zs.poolMonitors) + len(zs.replicaManagers) + len(zs.snapshotManagers))
+	wrapFunc := func(f func()) {
+		defer wg.Done()
+		f()
+	}
+	for _, pm := range zs.poolMonitors {
+		go wrapFunc(pm.Run)
+	}
+	for _, rm := range zs.replicaManagers {
+		go wrapFunc(rm.Run)
+	}
+	for _, sm := range zs.snapshotManagers {
+		go wrapFunc(sm.Run)
+	}
+	wg.Wait()
+}
+
+func (zs *zsyncer) Close() error {
+	zs.cancel()
+	return nil
+}
+
+// zsyncError is a wrapper for only recovering panics from checkError.
+type zsyncError struct{ error }
+
+func recoverError(f func(error)) {
+	ex := recover()
+	if ze, ok := ex.(zsyncError); ok {
+		f(ze.error)
+	} else if ex != nil {
+		panic(ex)
+	}
+}
+func checkError(err error) {
+	if err != nil {
+		panic(zsyncError{err})
+	}
+}
+
+func trySignal(c chan<- struct{}) {
+	select {
+	case c <- struct{}{}:
+	default:
+	}
+}
+
+func indentLines(s string) string {
+	ss := strings.Split(strings.Trim(s, "\n"), "\n")
+	return "\t" + strings.Join(ss, "\n\t")
+}
