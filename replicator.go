@@ -247,17 +247,16 @@ func parseDryRunOutput(s string) (currSize, totalSize int64) {
 			currSize, _ = strconv.ParseInt(s[strings.LastIndexByte(s, 'x')+1:], 16, 64)
 		}
 	}
-	fmt.Println(s, currSize, totalSize)
 	totalSize += currSize
 	return currSize, totalSize
 }
 
 func zsendArgs(xs ...interface{}) []string {
-	return flattenArgs(append([]interface{}{"zfs", "send"}, xs)...)
+	return flattenArgs(append([]interface{}{"zfs", "send"}, xs...)...)
 }
 
 func zrecvArgs(xs ...interface{}) []string {
-	return flattenArgs(append([]interface{}{"zfs", "recv"}, xs)...)
+	return flattenArgs(append([]interface{}{"zfs", "recv"}, xs...)...)
 }
 
 func flattenArgs(xs ...interface{}) (out []string) {
@@ -268,7 +267,7 @@ func flattenArgs(xs ...interface{}) (out []string) {
 		case []string:
 			out = append(out, x...)
 		default:
-			panic(fmt.Sprintf("unknown type: %T", x))
+			panic(fmt.Sprintf("unknown value: %#v", x))
 		}
 	}
 	return out
