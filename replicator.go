@@ -175,40 +175,43 @@ type transferArgs struct {
 func (rm *replicaManager) transfer(args transferArgs) {
 	// Best-effort at send size estimation.
 	s, _ := args.SrcExec.Exec(flattenArgs(args.SendArgs[:2], "-nP", args.SendArgs[2:])...)
-	currSize, totalSize := parseDryOutput(s)
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		t := time.NewTicker(100 * time.Millisecond)
-		defer t.Stop()
-		last := time.Now()
-		lastCnt := rm.lim.Transferred()
-		for run := true; run; {
-			var now time.Time
-			select {
-			case now = <-t.C:
-			case <-done:
-				now = time.Now()
-				run = false
-			}
-
-			currCnt := rm.lim.Transferred()
-			currSize += currCnt - lastCnt
-			rate := float64(currCnt-lastCnt) / now.Sub(last).Seconds()
-			ratio := float64(currSize) / float64(totalSize)
-			last = now
-			lastCnt = currCnt
-
-			if totalSize == 0 {
-				fmt.Printf("% 7sB/s\n", unitconv.FormatPrefix(rate, unitconv.IEC, 1))
-			} else {
-				if ratio > 1 {
-					ratio = 1
+	currSize, totalSize := parseDryRunOutput(s)
+	if false {
+		// TODO: Provide a better progress update mechanism.
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			t := time.NewTicker(100 * time.Millisecond)
+			defer t.Stop()
+			last := time.Now()
+			lastCnt := rm.lim.Transferred()
+			for run := true; run; {
+				var now time.Time
+				select {
+				case now = <-t.C:
+				case <-done:
+					now = time.Now()
+					run = false
 				}
-				fmt.Printf("% 7sB/s %5.1f%%\n", unitconv.FormatPrefix(rate, unitconv.IEC, 1), 100*ratio)
+
+				currCnt := rm.lim.Transferred()
+				currSize += currCnt - lastCnt
+				rate := float64(currCnt-lastCnt) / now.Sub(last).Seconds()
+				ratio := float64(currSize) / float64(totalSize)
+				last = now
+				lastCnt = currCnt
+
+				if totalSize == 0 {
+					fmt.Printf("% 7sB/s\n", unitconv.FormatPrefix(rate, unitconv.IEC, 1))
+				} else {
+					if ratio > 1 {
+						ratio = 1
+					}
+					fmt.Printf("% 7sB/s %5.1f%%\n", unitconv.FormatPrefix(rate, unitconv.IEC, 1), 100*ratio)
+				}
 			}
-		}
-	}()
+		}()
+	}
 
 	// Perform actual transfer.
 	rm.zs.log.Printf("transferring %s: %s -> %s", args.Mode, args.SrcLabel, args.DstLabel)
@@ -230,7 +233,7 @@ func (rm *replicaManager) transfer(args transferArgs) {
 	rm.zs.log.Printf("transfer complete to destination: %s", args.DstLabel)
 }
 
-func parseDryOutput(s string) (currSize, totalSize int64) {
+func parseDryRunOutput(s string) (currSize, totalSize int64) {
 	ss := strings.Split(s, "\n")
 	for _, s := range ss {
 		if regexp.MustCompile(`^(full|incremental)\t[^\t]+\t([^\t]+\t)?[0-9]+$`).MatchString(s) {
