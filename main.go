@@ -29,9 +29,9 @@ import (
 var version string
 
 const Help = `
-The zsync daemon auto-snapshots datasets, transfers ZFS datasets
-across multiple machines in either a push or pull mechanism using either SSH or
-local-OS subprocesses, and also auto-deletes stale snapshots.
+The zsync daemon auto-snapshots ZFS datasets, replicates datasets, and
+auto-deletes stale snapshots. The replication can be performed across machines
+in either a push or pull mechanism using either SSH or local OS subprocesses.
 
 In order for the daemon to properly perform ZFS operations, the "zfs allow"
 feature must be used to enable permissions on certain operations.
@@ -93,10 +93,10 @@ The JSON format used permits the use of comments and takes the following form:
 		"Cron": "@daily", // E.g., "0 0 * * * *"
 
 		// Snapshots are automatically deleted after this many are made.
-		// Snapshots are only deleted if there exist at least common snapshot
-		// across the source and all mirrors.
+		// Snapshots are only deleted if there exist at least some
+		// common snapshot across the source and all mirrors.
 		// A zero value indicates that snapshots are never deleted.
-		"Count": 7,
+		"Count": 0,
 	},
 
 	// SendFlags is a list of flags to pass in when invoking "zfs send".
@@ -243,7 +243,7 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 		conf.ConcurrentTransfers = 1
 	}
 	if conf.AutoSnapshot == nil {
-		conf.AutoSnapshot = &snapshotOptions{Cron: "@daily", Count: 7}
+		conf.AutoSnapshot = &snapshotOptions{Cron: "@daily"}
 	}
 
 	// Print the configuration.
