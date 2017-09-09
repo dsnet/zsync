@@ -81,7 +81,8 @@ The JSON format used permits the use of comments and takes the following form:
 	},
 
 	// ConcurrentTransfers specifies the maximum number of concurrent transfers
-	// that may occur.
+	// that may occur. Even if a source has multiple mirrors, at most one
+	// transfer occurs at a time for each source.
 	"ConcurrentTransfers": 1,
 
 	// RateLimit sets the global IO rate limit for all transfers.
