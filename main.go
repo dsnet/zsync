@@ -21,7 +21,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/dsnet/golib/jsonutil"
+	"github.com/dsnet/golib/jsonfmt"
 	"github.com/dsnet/golib/unitconv"
 )
 
@@ -234,7 +234,7 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 	if err != nil {
 		logger.Fatalf("unable to read config: %v", err)
 	}
-	c, _ = jsonutil.Minify(c)
+	c, _ = jsonfmt.Format(c, jsonfmt.Minify())
 	if err := json.Unmarshal(c, &conf); err != nil {
 		logger.Fatalf("unable to decode config: %v", err)
 	}
