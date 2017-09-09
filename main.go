@@ -146,6 +146,9 @@ type config struct {
 		LocalhostAlias string           `json:",omitempty"`
 	}
 
+	// TODO: Add DryRun mode where prints any snapshot|destroy|send|recv
+	// commands to be performed and then exists.
+
 	ConcurrentTransfers int
 	datasetOptions
 	Datasets []datasetConfig
