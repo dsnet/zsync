@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -136,6 +137,8 @@ func (sm *snapshotManager) Run() {
 // This does not contain the dataset name.
 type snapshots []string
 
+var dateRegex = regexp.MustCompile("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+
 func listSnapshots(exec *executor, dataset string) (snapshots, error) {
 	list, err := exec.Exec("zfs", "list", "-H", "-r", "-t", "snapshot", "-o", "name", dataset)
 	if err != nil {
@@ -145,7 +148,9 @@ func listSnapshots(exec *executor, dataset string) (snapshots, error) {
 	var ss snapshots
 	for _, s := range strings.Split(list, "\n") {
 		if strings.HasPrefix(s, dataset+"@") {
-			ss = append(ss, s[len(dataset)+1:])
+			if s := s[len(dataset)+1:]; dateRegex.MatchString(s) {
+				ss = append(ss, s)
+			}
 		}
 	}
 	return ss, nil

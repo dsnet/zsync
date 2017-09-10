@@ -100,21 +100,9 @@ func (rm *replicaManager) replicate(i int, hadFailure *bool) {
 	checkError(err)
 	defer dstExec.Close()
 
-	// Retrieve list of source and destination snapshots.
-	srcSnapshots, err := listSnapshots(srcExec, src.name)
-	checkError(err)
-	if len(srcSnapshots) == 0 {
-		return
-	}
-	dstSnapshots, err := listSnapshots(dstExec, dst.name)
-	if xerr, ok := err.(exitError); ok && strings.Contains(xerr.Stderr, "does not exist") {
-		err = nil
-	}
-	checkError(err)
-
+	// Resume a partial receive if there is a token.
 	s, err := dstExec.Exec("zfs", "get", "-H", "receive_resume_token", dst.name)
 	if toks := strings.Split(s, "\t"); err == nil && len(toks) > 2 && len(toks[2]) > 1 {
-		// Resume a partial receive if there is a token.
 		rm.transfer(transferArgs{
 			Mode:     "partial",
 			SrcLabel: src.DatasetPath(),
@@ -123,27 +111,35 @@ func (rm *replicaManager) replicate(i int, hadFailure *bool) {
 			RecvArgs: zrecvArgs(rm.recvFlags, dst.name),
 			SrcExec:  srcExec, DstExec: dstExec,
 		})
-	} else if len(dstSnapshots) == 0 {
-		// Clone first snapshot if destination has no snapshots.
-		rm.transfer(transferArgs{
-			Mode:     "initial",
-			SrcLabel: src.SnapshotPath(srcSnapshots[0]),
-			DstLabel: dst.DatasetPath(),
-			SendArgs: zsendArgs(rm.sendFlags, src.SnapshotName(srcSnapshots[0])),
-			RecvArgs: zrecvArgs(rm.recvFlags, "-o", "mountpoint=none", "-o", "readonly=on", dst.name),
-			SrcExec:  srcExec, DstExec: dstExec,
-		})
 	}
 
 	for {
-		// Use last destination snapshot for incremental send.
+		// Obtain a list of source and destination snapshots.
 		srcSnapshots, err := listSnapshots(srcExec, src.name)
 		checkError(err)
-		dstSnapshots, err := listSnapshots(dstExec, dst.name)
-		checkError(err)
-		if len(dstSnapshots) == 0 {
-			checkError(fmt.Errorf("destination has no snapshots: %s", src.DatasetPath()))
+		if len(srcSnapshots) == 0 {
+			return
 		}
+		dstSnapshots, err := listSnapshots(dstExec, dst.name)
+		if xerr, ok := err.(exitError); ok && strings.Contains(xerr.Stderr, "does not exist") {
+			err = nil
+		}
+		checkError(err)
+
+		// Clone first snapshot if destination has no snapshots.
+		if len(dstSnapshots) == 0 {
+			rm.transfer(transferArgs{
+				Mode:     "initial",
+				SrcLabel: src.SnapshotPath(srcSnapshots[0]),
+				DstLabel: dst.DatasetPath(),
+				SendArgs: zsendArgs(rm.sendFlags, src.SnapshotName(srcSnapshots[0])),
+				RecvArgs: zrecvArgs(rm.recvFlags, "-o", "mountpoint=none", "-o", "readonly=on", dst.name),
+				SrcExec:  srcExec, DstExec: dstExec,
+			})
+			continue
+		}
+
+		// Use last destination snapshot for incremental send.
 		ss := dstSnapshots[len(dstSnapshots)-1]
 		i := findString(srcSnapshots, ss)
 		if i < 0 {

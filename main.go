@@ -197,8 +197,6 @@ type datasetOptions struct {
 type snapshotOptions struct {
 	Cron  string
 	Count int `json:",omitempty"`
-
-	// TODO: How to exclude certain snapshots from the count and being deleted?
 }
 
 type rateLimit float64
