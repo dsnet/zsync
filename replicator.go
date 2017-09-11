@@ -61,22 +61,24 @@ func (rm *replicaManager) Run() {
 			return
 		}
 
-		var hadFailure bool
+		var replicated, failed bool
 		for i := range rm.dstDatasets {
-			rm.replicate(i, &hadFailure)
+			rm.replicate(i, &replicated, &failed)
 		}
-		if hadFailure {
+		if failed {
 			rm.timer.Reset(30 * time.Second)
 		} else {
 			rm.timer.Stop()
 		}
 
 		// Signal the snapshot manager to delete synced snapshots.
-		trySignal(rm.zs.snapshotManagers[rm.srcDataset.DatasetPath()].signal)
+		if replicated {
+			trySignal(rm.zs.snapshotManagers[rm.srcDataset.DatasetPath()].signal)
+		}
 	}
 }
 
-func (rm *replicaManager) replicate(i int, hadFailure *bool) {
+func (rm *replicaManager) replicate(i int, replicated, failed *bool) {
 	// Acquire the semaphore to limit number of concurrent transfers.
 	select {
 	case rm.zs.replSema <- struct{}{}:
@@ -87,7 +89,7 @@ func (rm *replicaManager) replicate(i int, hadFailure *bool) {
 
 	defer recoverError(func(err error) {
 		rm.zs.log.Printf("unexpected error: %v", err)
-		*hadFailure = true
+		*failed = true
 	})
 
 	src, dst := rm.srcDataset, rm.dstDatasets[i]
@@ -111,6 +113,7 @@ func (rm *replicaManager) replicate(i int, hadFailure *bool) {
 			RecvArgs: zrecvArgs(rm.recvFlags, dst.name),
 			SrcExec:  srcExec, DstExec: dstExec,
 		})
+		*replicated = true
 	}
 
 	for {
@@ -136,6 +139,7 @@ func (rm *replicaManager) replicate(i int, hadFailure *bool) {
 				RecvArgs: zrecvArgs(rm.recvFlags, "-o", "mountpoint=none", "-o", "readonly=on", dst.name),
 				SrcExec:  srcExec, DstExec: dstExec,
 			})
+			*replicated = true
 			continue
 		}
 
@@ -159,6 +163,7 @@ func (rm *replicaManager) replicate(i int, hadFailure *bool) {
 			RecvArgs: zrecvArgs(rm.recvFlags, dst.name),
 			SrcExec:  srcExec, DstExec: dstExec,
 		})
+		*replicated = true
 	}
 }
 
@@ -210,6 +215,7 @@ func (rm *replicaManager) transfer(args transferArgs) {
 	}
 
 	// Perform actual transfer.
+	now := time.Now()
 	rm.zs.log.Printf("transferring %s: %s -> %s", args.Mode, args.SrcLabel, args.DstLabel)
 	r, w := rm.lim.Pipe()
 	errc := make(chan error, 2)
@@ -226,7 +232,8 @@ func (rm *replicaManager) transfer(args transferArgs) {
 	err1, err2 := <-errc, <-errc
 	checkError(err1)
 	checkError(err2)
-	rm.zs.log.Printf("transfer complete to destination: %s", args.DstLabel)
+	d := time.Now().Sub(now).Truncate(time.Second)
+	rm.zs.log.Printf("transfer complete after %v to destination: %s", d, args.DstLabel)
 }
 
 func parseDryRunOutput(s string) (currSize, totalSize int64) {
