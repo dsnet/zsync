@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -164,28 +165,33 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 			dsts = append(dsts, makeDataset(dp))
 		}
 
-		cronStr, count := "", 0
-		if as := ds.AutoSnapshot; as != nil {
-			cronStr, count = as.Cron, as.Count
-		} else if as := conf.AutoSnapshot; as != nil {
-			cronStr, count = as.Cron, as.Count
-		}
-		sched, err := cron.ParseSchedule(cronStr)
-		if err != nil {
-			logger.Fatalf("could not parse: %v", err)
-		}
-
+		// Parse replica manager options.
 		rate := iolimit.Inf
 		if ds.RateLimit != nil {
 			rate = float64(*ds.RateLimit)
 		}
-
 		sendFlags, recvFlags := conf.SendFlags, conf.RecvFlags
 		if ds.SendFlags != nil {
 			sendFlags = ds.SendFlags
 		}
 		if ds.RecvFlags != nil {
 			recvFlags = ds.RecvFlags
+		}
+
+		// Parse snapshot manager options.
+		var ssOpts snapshotOptions
+		if as := ds.AutoSnapshot; as != nil {
+			ssOpts = *as
+		} else if as := conf.AutoSnapshot; as != nil {
+			ssOpts = *as
+		}
+		sched, err := cron.ParseSchedule(ssOpts.Cron)
+		if err != nil {
+			logger.Fatalf("could not parse: %v", err)
+		}
+		tz, err := time.LoadLocation(ssOpts.TimeZone)
+		if err != nil {
+			logger.Fatalf("invalid timezone: %v", err)
 		}
 
 		// Register the pool monitor, dataset replicator, and dataset manager.
@@ -197,7 +203,7 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 			zs.RegisterPoolMonitor(pool, src.target)
 		}
 		zs.RegisterReplicaManager(src, dsts, rate, sendFlags, recvFlags)
-		zs.RegisterSnapshotManager(src, dsts, sched, count)
+		zs.RegisterSnapshotManager(src, dsts, sched, tz, ssOpts.Count)
 	}
 	return zs
 }

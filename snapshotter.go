@@ -23,22 +23,24 @@ type snapshotManager struct {
 	srcDataset  dataset
 	dstDatasets []dataset
 
-	sched cron.Schedule
-	count int
+	sched    cron.Schedule
+	timeZone *time.Location
+	count    int
 
 	signal chan struct{}
 	timer  *time.Timer
 }
 
-func (zs *zsyncer) RegisterSnapshotManager(src dataset, dsts []dataset, sched cron.Schedule, count int) {
+func (zs *zsyncer) RegisterSnapshotManager(src dataset, dsts []dataset, sched cron.Schedule, tz *time.Location, count int) {
 	sm := &snapshotManager{
 		zs: zs,
 
 		srcDataset:  src,
 		dstDatasets: dsts,
 
-		sched: sched,
-		count: count,
+		sched:    sched,
+		timeZone: tz,
+		count:    count,
 
 		signal: make(chan struct{}, 1),
 		timer:  time.NewTimer(0),
@@ -51,7 +53,7 @@ func (zs *zsyncer) RegisterSnapshotManager(src dataset, dsts []dataset, sched cr
 }
 
 func (sm *snapshotManager) Run() {
-	cronTimer := cron.NewCron(sm.sched, time.UTC)
+	cronTimer := cron.NewCron(sm.sched, sm.timeZone)
 	defer cronTimer.Stop()
 
 	var makeSnapshot bool
