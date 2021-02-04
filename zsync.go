@@ -183,14 +183,8 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 			logger.Fatalf("invalid timezone: %v", err)
 		}
 
-		// Register the pool monitor, dataset replicator, and dataset manager.
-		if _, ok := zs.poolMonitors[src.PoolPath()]; !ok {
-			pool := src.name
-			if i := strings.IndexByte(pool, '/'); i >= 0 {
-				pool = pool[:i]
-			}
-			zs.RegisterPoolMonitor(pool, src.target)
-		}
+		// Register the pool monitors, dataset replicator, and dataset manager.
+		zs.RegisterPoolMonitors(src, dsts)
 		zs.RegisterReplicaManager(src, dsts, sendFlags, recvFlags)
 		zs.RegisterSnapshotManager(src, dsts, sched, tz, ssOpts.Count)
 	}

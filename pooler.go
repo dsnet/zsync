@@ -20,17 +20,31 @@ type poolMonitor struct {
 	timer  *time.Timer
 }
 
-func (zs *zsyncer) RegisterPoolMonitor(pool string, target execTarget) {
+func (zs *zsyncer) RegisterPoolMonitors(src dataset, dsts []dataset) {
+	if _, ok := zs.poolMonitors[src.PoolPath()]; !ok {
+		zs.registerPoolMonitor(src)
+	}
+	for _, dst := range dsts {
+		if _, ok := zs.poolMonitors[dst.PoolPath()]; !ok {
+			zs.registerPoolMonitor(dst)
+		}
+	}
+}
+func (zs *zsyncer) registerPoolMonitor(ds dataset) {
+	pool := ds.name
+	if i := strings.IndexByte(pool, '/'); i >= 0 {
+		pool = pool[:i]
+	}
 	pm := &poolMonitor{
 		zs: zs,
 
 		pool:   pool,
-		target: target,
+		target: ds.target,
 
 		signal: make(chan struct{}, 1),
 		timer:  time.NewTimer(0),
 	}
-	id := dataset{pool, target}.PoolPath()
+	id := dataset{pool, ds.target}.PoolPath()
 	if _, ok := zs.poolMonitors[id]; ok {
 		zs.log.Fatalf("%s already registered", id)
 	}
