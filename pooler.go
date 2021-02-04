@@ -25,7 +25,7 @@ type poolMonitor struct {
 }
 
 type poolStatus struct {
-	State int // -1: unhealthy, 0: unknown, +1: healthy
+	State int // -2: unhealthy, -1: maybe unhealthy, 0: unknown, +1: maybe healthy, +2 healthy
 }
 
 func (zs *zsyncer) RegisterPoolMonitors(src dataset, dsts []dataset) {
@@ -89,7 +89,12 @@ func (pm *poolMonitor) Run() {
 		func() {
 			defer recoverError(func(err error) {
 				pm.statusMu.Lock()
-				pm.status.State = 0 // unknown state
+				switch pm.status.State {
+				case -2:
+					pm.status.State = -1 // maybe unhealthy
+				case +2:
+					pm.status.State = +1 // maybe healthy
+				}
 				pm.statusMu.Unlock()
 
 				pm.zs.log.Printf("unexpected error: %v", err)
@@ -111,12 +116,12 @@ func (pm *poolMonitor) Run() {
 			pm.statusMu.Lock()
 			if strings.Contains(strings.Split(out, "\n")[0], "is healthy") {
 				if pm.status.State <= 0 {
-					pm.status.State = +1
+					pm.status.State = +2
 					pm.zs.log.Printf("pool %q is healthy", pm.pool)
 				}
 			} else {
 				if pm.status.State >= 0 {
-					pm.status.State = -1
+					pm.status.State = -2
 					pm.zs.log.Printf("pool %q is unhealthy\n%s", pm.pool, indentLines(out))
 				}
 			}

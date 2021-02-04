@@ -47,10 +47,16 @@ func (zs *zsyncer) ServeHTTP() {
 			for _, pool := range pools {
 				var state, style string
 				switch zs.poolMonitors[pool].Status().State {
-				case +1:
+				case +2:
 					state = "✅ HEALTHY"
 					style = "background-color:#d0ffd0;" // green
+				case +1:
+					state = "✅ HEALTHY"
+					style = "background-color:#ffffd0;" // yellow
 				case -1:
+					state = "❌ UNHEALTHY"
+					style = "background-color:#ffffd0;" // yellow
+				case -2:
 					state = "❌ UNHEALTHY"
 					style = "background-color:#ffd0d0;" // red
 				default:
