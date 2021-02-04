@@ -6,13 +6,9 @@ package main
 
 import (
 	"fmt"
-	"regexp"
-	"strconv"
+	"io"
 	"strings"
 	"time"
-
-	"github.com/dsnet/golib/iolimit"
-	"github.com/dsnet/golib/unitconv"
 )
 
 // replicaManager is responsible for sending snapshots from one target
@@ -23,7 +19,6 @@ type replicaManager struct {
 	srcDataset  dataset
 	dstDatasets []dataset
 
-	lim       *iolimit.Limiter
 	sendFlags []string
 	recvFlags []string
 
@@ -31,14 +26,13 @@ type replicaManager struct {
 	timer  *time.Timer
 }
 
-func (zs *zsyncer) RegisterReplicaManager(src dataset, dsts []dataset, rate float64, sendFlags, recvFlags []string) {
+func (zs *zsyncer) RegisterReplicaManager(src dataset, dsts []dataset, sendFlags, recvFlags []string) {
 	rm := &replicaManager{
 		zs: zs,
 
 		srcDataset:  src,
 		dstDatasets: dsts,
 
-		lim:       zs.lim.SubLimiter(rate, 256<<10),
 		sendFlags: sendFlags,
 		recvFlags: recvFlags,
 
@@ -174,50 +168,10 @@ type transferArgs struct {
 }
 
 func (rm *replicaManager) transfer(args transferArgs) {
-	// Best-effort at send size estimation.
-	s, _ := args.SrcExec.Exec(flattenArgs(args.SendArgs[:2], "-nP", args.SendArgs[2:])...)
-	currSize, totalSize := parseDryRunOutput(s)
-	if false {
-		// TODO: Provide a better progress update mechanism.
-		done := make(chan struct{})
-		defer close(done)
-		go func() {
-			t := time.NewTicker(100 * time.Millisecond)
-			defer t.Stop()
-			last := time.Now()
-			lastCnt := rm.lim.Transferred()
-			for run := true; run; {
-				var now time.Time
-				select {
-				case now = <-t.C:
-				case <-done:
-					now = time.Now()
-					run = false
-				}
-
-				currCnt := rm.lim.Transferred()
-				currSize += currCnt - lastCnt
-				rate := float64(currCnt-lastCnt) / now.Sub(last).Seconds()
-				ratio := float64(currSize) / float64(totalSize)
-				last = now
-				lastCnt = currCnt
-
-				if totalSize == 0 {
-					fmt.Printf("% 7sB/s\n", unitconv.FormatPrefix(rate, unitconv.IEC, 1))
-				} else {
-					if ratio > 1 {
-						ratio = 1
-					}
-					fmt.Printf("% 7sB/s %5.1f%%\n", unitconv.FormatPrefix(rate, unitconv.IEC, 1), 100*ratio)
-				}
-			}
-		}()
-	}
-
 	// Perform actual transfer.
 	now := time.Now()
 	rm.zs.log.Printf("transferring %s: %s -> %s", args.Mode, args.SrcLabel, args.DstLabel)
-	r, w := rm.lim.Pipe()
+	r, w := io.Pipe()
 	errc := make(chan error, 2)
 	go func() {
 		err := args.SrcExec.ExecStream(nil, w, args.SendArgs...)
@@ -234,24 +188,6 @@ func (rm *replicaManager) transfer(args transferArgs) {
 	checkError(err2)
 	d := time.Now().Sub(now).Truncate(time.Second)
 	rm.zs.log.Printf("transfer complete after %v to destination: %s", d, args.DstLabel)
-}
-
-func parseDryRunOutput(s string) (currSize, totalSize int64) {
-	ss := strings.Split(s, "\n")
-	for _, s := range ss {
-		if regexp.MustCompile(`^(full|incremental)\t[^\t]+\t([^\t]+\t)?[0-9]+$`).MatchString(s) {
-			// This appears in all sends as either the first or last line:
-			//	"full	tank/mirror2@2017-09-08T09:58:22Z	25185392"
-			totalSize, _ = strconv.ParseInt(s[strings.LastIndexByte(s, '\t')+1:], 10, 64)
-		}
-		if regexp.MustCompile(`^\s+bytes = 0x[0-9a-f]+$`).MatchString(s) {
-			// This appears in resumed sends only:
-			//	"	bytes = 0xd9099c8"
-			currSize, _ = strconv.ParseInt(s[strings.LastIndexByte(s, 'x')+1:], 16, 64)
-		}
-	}
-	totalSize += currSize
-	return currSize, totalSize
 }
 
 func zsendArgs(xs ...interface{}) []string {

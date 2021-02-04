@@ -22,7 +22,6 @@ import (
 	"syscall"
 
 	"github.com/dsnet/golib/jsonfmt"
-	"github.com/dsnet/golib/unitconv"
 )
 
 // Version of the zsync binary. May be set by linker when building.
@@ -85,9 +84,6 @@ The JSON format used permits the use of comments and takes the following form:
 	// transfer occurs at a time for each source.
 	"ConcurrentTransfers": 1,
 
-	// RateLimit sets the global IO rate limit for all transfers.
-	"RateLimit": "+Inf", // E.g., "50MiB/s"
-
 	// AutoSnapshot specifies when snapshots are taken and how many to keep.
 	"AutoSnapshot": {
 		// Cron uses the standard cron syntax to specify when snapshots trigger.
@@ -116,7 +112,7 @@ The JSON format used permits the use of comments and takes the following form:
 	// Datasets is a list of datasets to replicate with "zfs send" and
 	// "zfs recv". By default, there are no datasets specified.
 	"Datasets": [{
-		// The RateLimit, AutoSnapshot, SendFlags, and RecvFlags parameters
+		// The AutoSnapshot, SendFlags, and RecvFlags parameters
 		// may also be specified on a per-dataset basis.
 
 		// The Source represents the ZFS dataset to replicate from.
@@ -191,7 +187,6 @@ func (p *datasetPath) UnmarshalJSON(b []byte) error {
 }
 
 type datasetOptions struct {
-	RateLimit    *rateLimit       `json:",omitempty"`
 	AutoSnapshot *snapshotOptions `json:",omitempty"`
 	SendFlags    []string         `json:",omitempty"`
 	RecvFlags    []string         `json:",omitempty"`
@@ -201,27 +196,6 @@ type snapshotOptions struct {
 	Cron     string `json:",omitempty"`
 	TimeZone string `json:",omitempty"`
 	Count    int    `json:",omitempty"`
-}
-
-type rateLimit float64
-
-func (rl rateLimit) MarshalJSON() ([]byte, error) {
-	return json.Marshal(unitconv.FormatPrefix(float64(rl), unitconv.IEC, 1) + "B/s")
-}
-func (rl *rateLimit) UnmarshalJSON(b []byte) error {
-	s := string(b)
-	if strings.HasPrefix(s, `"`) {
-		if err := json.Unmarshal(b, &s); err != nil {
-			return err
-		}
-		s = strings.TrimSuffix(s, "B/s")
-	}
-	v, err := unitconv.ParsePrefix(s, unitconv.AutoParse)
-	if err != nil {
-		return err
-	}
-	*rl = rateLimit(v)
-	return nil
 }
 
 func loadConfig(path string) (conf config, logger *log.Logger, closer func() error) {

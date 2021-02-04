@@ -18,7 +18,6 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/dsnet/golib/cron"
-	"github.com/dsnet/golib/iolimit"
 )
 
 type dataset struct {
@@ -52,7 +51,6 @@ func (ds dataset) SnapshotName(s string) string {
 
 type zsyncer struct {
 	log *log.Logger
-	lim *iolimit.Limiter
 
 	replSema chan struct{}
 	ctx      context.Context
@@ -64,14 +62,9 @@ type zsyncer struct {
 }
 
 func newZSyncer(conf config, logger *log.Logger) *zsyncer {
-	rate := iolimit.Inf
-	if conf.RateLimit != nil {
-		rate = float64(*conf.RateLimit)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	zs := &zsyncer{
 		log: logger,
-		lim: iolimit.NewLimiter(rate, 256<<10),
 
 		replSema: make(chan struct{}, conf.ConcurrentTransfers),
 		ctx:      ctx,
@@ -166,10 +159,6 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 		}
 
 		// Parse replica manager options.
-		rate := iolimit.Inf
-		if ds.RateLimit != nil {
-			rate = float64(*ds.RateLimit)
-		}
 		sendFlags, recvFlags := conf.SendFlags, conf.RecvFlags
 		if ds.SendFlags != nil {
 			sendFlags = ds.SendFlags
@@ -202,7 +191,7 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 			}
 			zs.RegisterPoolMonitor(pool, src.target)
 		}
-		zs.RegisterReplicaManager(src, dsts, rate, sendFlags, recvFlags)
+		zs.RegisterReplicaManager(src, dsts, sendFlags, recvFlags)
 		zs.RegisterSnapshotManager(src, dsts, sched, tz, ssOpts.Count)
 	}
 	return zs
