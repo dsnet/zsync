@@ -249,3 +249,20 @@ func indentLines(s string) string {
 	ss := strings.Split(strings.Trim(s, "\n"), "\n")
 	return "\t" + strings.Join(ss, "\n\t")
 }
+
+// timeoutAfter returns the timeout to wait before retrying an operation.
+// It takes the previous timeout (starting at zero) as input.
+func timeoutAfter(d time.Duration) time.Duration {
+	switch {
+	case d < 1*time.Minute:
+		return 1 * time.Minute
+	case d < 5*time.Minute:
+		return 5 * time.Minute
+	case d < 10*time.Minute:
+		return 10 * time.Minute
+	case d < 30*time.Minute:
+		return 30 * time.Minute
+	default:
+		return 60 * time.Hour
+	}
+}

@@ -51,6 +51,7 @@ func (pm *poolMonitor) Run() {
 	}
 	defer tryCloseExec()
 
+	var retryDelay time.Duration
 	for {
 		select {
 		case <-pm.signal:
@@ -62,7 +63,8 @@ func (pm *poolMonitor) Run() {
 		func() {
 			defer recoverError(func(err error) {
 				pm.zs.log.Printf("unexpected error: %v", err)
-				pm.timer.Reset(30 * time.Second)
+				retryDelay = timeoutAfter(retryDelay)
+				pm.timer.Reset(retryDelay)
 				tryCloseExec()
 			})
 
@@ -81,14 +83,14 @@ func (pm *poolMonitor) Run() {
 					state = +1
 					pm.zs.log.Printf("pool %q is healthy", pm.pool)
 				}
-				pm.timer.Reset(5 * time.Minute)
 			} else {
 				if state >= 0 {
 					state = -1
 					pm.zs.log.Printf("pool %q is unhealthy\n%s", pm.pool, indentLines(out))
 				}
-				pm.timer.Reset(30 * time.Second)
 			}
+			retryDelay = 0
+			pm.timer.Reset(10 * time.Minute)
 		}()
 	}
 }

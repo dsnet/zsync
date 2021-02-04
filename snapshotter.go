@@ -57,6 +57,7 @@ func (sm *snapshotManager) Run() {
 	defer cronTimer.Stop()
 
 	var makeSnapshot bool
+	var retryDelay time.Duration
 	for {
 		select {
 		case <-sm.signal:
@@ -70,7 +71,8 @@ func (sm *snapshotManager) Run() {
 		func() {
 			defer recoverError(func(err error) {
 				sm.zs.log.Printf("unexpected error: %v", err)
-				sm.timer.Reset(30 * time.Second)
+				retryDelay = timeoutAfter(retryDelay)
+				sm.timer.Reset(retryDelay)
 			})
 
 			// Open an executor for the source dataset.
@@ -130,6 +132,7 @@ func (sm *snapshotManager) Run() {
 				}
 			}
 
+			retryDelay = 0
 			sm.timer.Stop()
 		}()
 	}

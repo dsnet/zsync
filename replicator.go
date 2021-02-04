@@ -47,6 +47,7 @@ func (zs *zsyncer) RegisterReplicaManager(src dataset, dsts []dataset, sendFlags
 }
 
 func (rm *replicaManager) Run() {
+	var retryDelay time.Duration
 	for {
 		select {
 		case <-rm.signal:
@@ -60,8 +61,10 @@ func (rm *replicaManager) Run() {
 			rm.replicate(i, &replicated, &failed)
 		}
 		if failed {
-			rm.timer.Reset(30 * time.Second)
+			retryDelay = timeoutAfter(retryDelay)
+			rm.timer.Reset(retryDelay)
 		} else {
+			retryDelay = 0
 			rm.timer.Stop()
 		}
 
