@@ -149,6 +149,9 @@ type config struct {
 	// TODO: Add DryRun mode where prints any snapshot|destroy|send|recv
 	// commands to be performed and then exists.
 
+	// TODO: Add option to control I/O bandwidth globally and per-dataset.
+	// Perhaps even allow controlling the bandwidth based on a cron schedule.
+
 	ConcurrentTransfers int
 	datasetOptions
 	Datasets []datasetConfig
