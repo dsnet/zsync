@@ -55,6 +55,13 @@ The JSON format used permits the use of comments and takes the following form:
 	// If the path is empty, then the log outputs to os.Stderr.
 	"LogFile": "",
 
+	// HTTP configures a web server to diagnose zsync progress.
+	HTTP: {
+		// Address is the TCP network address for the server to bind to.
+		// By default, there is no HTTP server enabled.
+		Address: "",
+	},
+
 	// SSH is a map of SSH-related configuration options.
 	"SSH": {
 		// KeyFiles is a list of SSH private key files.
@@ -136,7 +143,10 @@ The JSON format used permits the use of comments and takes the following form:
 type config struct {
 	LogFile string `json:",omitempty"`
 
-	// TODO: Add HTTP server to monitor and manage the daemon.
+	HTTP struct {
+		Address string `json:",omitempty"`
+	}
+
 	// TODO: Add ability to send emails when problems are encountered.
 
 	SSH struct {

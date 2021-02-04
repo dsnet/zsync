@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/dsnet/golib/unitconv"
 )
 
 // replicaManager is responsible for sending snapshots from one target
@@ -24,6 +27,16 @@ type replicaManager struct {
 
 	signal chan struct{}
 	timer  *time.Timer
+
+	statusMu sync.Mutex
+	statuses []replicationStatus // len(statuses) == len(dst)
+}
+
+type replicationStatus struct {
+	Started     time.Time
+	Finished    time.Time
+	Transferred int64
+	FaultReason string
 }
 
 func (zs *zsyncer) RegisterReplicaManager(src dataset, dsts []dataset, sendFlags, recvFlags []string) {
@@ -38,12 +51,20 @@ func (zs *zsyncer) RegisterReplicaManager(src dataset, dsts []dataset, sendFlags
 
 		signal: make(chan struct{}, 1),
 		timer:  time.NewTimer(0),
+
+		statuses: make([]replicationStatus, len(dsts)),
 	}
 	id := src.DatasetPath()
 	if _, ok := zs.replicaManagers[id]; ok {
 		zs.log.Fatalf("%s already registered", id)
 	}
 	zs.replicaManagers[id] = rm
+}
+
+func (rm *replicaManager) Status() []replicationStatus {
+	rm.statusMu.Lock()
+	defer rm.statusMu.Unlock()
+	return append([]replicationStatus(nil), rm.statuses...)
 }
 
 func (rm *replicaManager) Run() {
@@ -75,7 +96,7 @@ func (rm *replicaManager) Run() {
 	}
 }
 
-func (rm *replicaManager) replicate(i int, replicated, failed *bool) {
+func (rm *replicaManager) replicate(idx int, replicated, failed *bool) {
 	// Acquire the semaphore to limit number of concurrent transfers.
 	select {
 	case rm.zs.replSema <- struct{}{}:
@@ -89,7 +110,7 @@ func (rm *replicaManager) replicate(i int, replicated, failed *bool) {
 		*failed = true
 	})
 
-	src, dst := rm.srcDataset, rm.dstDatasets[i]
+	src, dst := rm.srcDataset, rm.dstDatasets[idx]
 
 	// Open an executor for the source and destination dataset.
 	srcExec, err := openExecutor(rm.zs.ctx, src.target)
@@ -102,7 +123,7 @@ func (rm *replicaManager) replicate(i int, replicated, failed *bool) {
 	// Resume a partial receive if there is a token.
 	s, err := dstExec.Exec("zfs", "get", "-H", "receive_resume_token", dst.name)
 	if toks := strings.Split(s, "\t"); err == nil && len(toks) > 2 && len(toks[2]) > 1 {
-		rm.transfer(transferArgs{
+		rm.transfer(idx, transferArgs{
 			Mode:     "partial",
 			SrcLabel: src.DatasetPath(),
 			DstLabel: dst.DatasetPath(),
@@ -128,7 +149,7 @@ func (rm *replicaManager) replicate(i int, replicated, failed *bool) {
 
 		// Clone first snapshot if destination has no snapshots.
 		if len(dstSnapshots) == 0 {
-			rm.transfer(transferArgs{
+			rm.transfer(idx, transferArgs{
 				Mode:     "initial",
 				SrcLabel: src.SnapshotPath(srcSnapshots[0]),
 				DstLabel: dst.DatasetPath(),
@@ -155,7 +176,7 @@ func (rm *replicaManager) replicate(i int, replicated, failed *bool) {
 		// the real source to avoid double bandwidth usage.
 
 		// Perform incremental transfer for all snapshots.
-		rm.transfer(transferArgs{
+		rm.transfer(idx, transferArgs{
 			Mode:     "incremental",
 			SrcLabel: src.SnapshotPath(srcSnapshots[i+1]),
 			DstLabel: dst.SnapshotPath(srcSnapshots[i]),
@@ -174,14 +195,33 @@ type transferArgs struct {
 	SrcExec, DstExec         *executor
 }
 
-func (rm *replicaManager) transfer(args transferArgs) {
+func (rm *replicaManager) transfer(idx int, args transferArgs) {
+	// Update status for the latest transfer operation.
+	rm.statusMu.Lock()
+	rm.statuses[idx] = replicationStatus{Started: time.Now()}
+	rm.statusMu.Unlock()
+	defer func() {
+		rm.statusMu.Lock()
+		rm.statuses[idx].Finished = time.Now()
+		rm.statusMu.Unlock()
+	}()
+
 	// Perform actual transfer.
 	now := time.Now()
 	rm.zs.log.Printf("transferring %s: %s -> %s", args.Mode, args.SrcLabel, args.DstLabel)
 	r, w := io.Pipe()
+	defer r.Close()
+	defer w.Close()
+	w2 := funcWriter(func(b []byte) (int, error) {
+		n, err := w.Write(b)
+		rm.statusMu.Lock()
+		rm.statuses[idx].Transferred += int64(n) // TODO: use atomic updates
+		rm.statusMu.Unlock()
+		return n, err
+	})
 	errc := make(chan error, 2)
 	go func() {
-		err := args.SrcExec.ExecStream(nil, w, args.SendArgs...)
+		err := args.SrcExec.ExecStream(nil, w2, args.SendArgs...)
 		w.CloseWithError(err)
 		errc <- err
 	}()
@@ -190,11 +230,21 @@ func (rm *replicaManager) transfer(args transferArgs) {
 		r.CloseWithError(err)
 		errc <- err
 	}()
-	err1, err2 := <-errc, <-errc
-	checkError(err1)
-	checkError(err2)
+	for i := 0; i < 2; i++ {
+		if err := <-errc; err != nil {
+			rm.statusMu.Lock()
+			rm.statuses[idx].FaultReason = err.Error()
+			rm.statusMu.Unlock()
+			checkError(err)
+		}
+	}
+
+	rm.statusMu.Lock()
+	n := rm.statuses[idx].Transferred
+	rm.statusMu.Unlock()
 	d := time.Now().Sub(now).Truncate(time.Second)
-	rm.zs.log.Printf("transfer complete after %v to destination: %s", d, args.DstLabel)
+	rm.zs.log.Printf("transfer complete (copied %vB in %v) to destination: %s",
+		unitconv.FormatPrefix(float64(n), unitconv.IEC, 1), d, args.DstLabel)
 }
 
 func zsendArgs(xs ...interface{}) []string {

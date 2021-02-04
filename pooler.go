@@ -6,6 +6,7 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,6 +19,13 @@ type poolMonitor struct {
 
 	signal chan struct{}
 	timer  *time.Timer
+
+	statusMu sync.Mutex
+	status   poolStatus
+}
+
+type poolStatus struct {
+	State int // -1: unhealthy, 0: unknown, +1: healthy
 }
 
 func (zs *zsyncer) RegisterPoolMonitors(src dataset, dsts []dataset) {
@@ -51,9 +59,13 @@ func (zs *zsyncer) registerPoolMonitor(ds dataset) {
 	zs.poolMonitors[id] = pm
 }
 
-func (pm *poolMonitor) Run() {
-	var state int // -1: offline, 0: unknown, +1: online
+func (pm *poolMonitor) Status() poolStatus {
+	pm.statusMu.Lock()
+	defer pm.statusMu.Unlock()
+	return pm.status
+}
 
+func (pm *poolMonitor) Run() {
 	// Cache the executor for efficiency purposes since the pool monitor
 	// checks for the status relatively frequently.
 	var exec *executor
@@ -76,6 +88,10 @@ func (pm *poolMonitor) Run() {
 
 		func() {
 			defer recoverError(func(err error) {
+				pm.statusMu.Lock()
+				pm.status.State = 0 // unknown state
+				pm.statusMu.Unlock()
+
 				pm.zs.log.Printf("unexpected error: %v", err)
 				retryDelay = timeoutAfter(retryDelay)
 				pm.timer.Reset(retryDelay)
@@ -92,17 +108,19 @@ func (pm *poolMonitor) Run() {
 			checkError(err) // Unhealthy pools are not a exec error
 
 			// Parse the pool status.
+			pm.statusMu.Lock()
 			if strings.Contains(strings.Split(out, "\n")[0], "is healthy") {
-				if state <= 0 {
-					state = +1
+				if pm.status.State <= 0 {
+					pm.status.State = +1
 					pm.zs.log.Printf("pool %q is healthy", pm.pool)
 				}
 			} else {
-				if state >= 0 {
-					state = -1
+				if pm.status.State >= 0 {
+					pm.status.State = -1
 					pm.zs.log.Printf("pool %q is unhealthy\n%s", pm.pool, indentLines(out))
 				}
 			}
+			pm.statusMu.Unlock()
 			retryDelay = 0
 			pm.timer.Reset(10 * time.Minute)
 		}()

@@ -56,6 +56,7 @@ type zsyncer struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 
+	httpAddress      string
 	poolMonitors     map[string]*poolMonitor
 	replicaManagers  map[string]*replicaManager
 	snapshotManagers map[string]*snapshotManager
@@ -70,6 +71,7 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 		ctx:      ctx,
 		cancel:   cancel,
 
+		httpAddress:      conf.HTTP.Address,
 		poolMonitors:     make(map[string]*poolMonitor),
 		replicaManagers:  make(map[string]*replicaManager),
 		snapshotManagers: make(map[string]*snapshotManager),
@@ -192,6 +194,10 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 }
 
 func (zs *zsyncer) Run() {
+	if zs.httpAddress != "" {
+		go zs.ServeHTTP()
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(len(zs.poolMonitors) + len(zs.replicaManagers) + len(zs.snapshotManagers))
 	wrapFunc := func(f func()) {
@@ -260,3 +266,11 @@ func timeoutAfter(d time.Duration) time.Duration {
 		return 60 * time.Hour
 	}
 }
+
+type (
+	funcReader func([]byte) (int, error)
+	funcWriter func([]byte) (int, error)
+)
+
+func (f funcReader) Read(b []byte) (int, error)  { return f(b) }
+func (f funcWriter) Write(b []byte) (int, error) { return f(b) }
