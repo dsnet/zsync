@@ -150,6 +150,10 @@ func (rm *replicaManager) replicate(i int, replicated, failed *bool) {
 			return
 		}
 
+		// TODO: If one of destination datasets is on localhost and
+		// it is already up-to-date, then use that as the source rather than
+		// the real source to avoid double bandwidth usage.
+
 		// Perform incremental transfer for all snapshots.
 		rm.transfer(transferArgs{
 			Mode:     "incremental",
