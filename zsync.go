@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dsnet/golib/cron"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
-
-	"github.com/dsnet/golib/cron"
+	gomail "gopkg.in/gomail.v2"
 )
 
 type dataset struct {
@@ -56,7 +56,9 @@ type zsyncer struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 
-	httpAddress      string
+	smtp smtpConfig
+	http httpConfig
+
 	poolMonitors     map[string]*poolMonitor
 	replicaManagers  map[string]*replicaManager
 	snapshotManagers map[string]*snapshotManager
@@ -71,7 +73,9 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 		ctx:      ctx,
 		cancel:   cancel,
 
-		httpAddress:      conf.HTTP.Address,
+		smtp: conf.SMTP,
+		http: conf.HTTP,
+
 		poolMonitors:     make(map[string]*poolMonitor),
 		replicaManagers:  make(map[string]*replicaManager),
 		snapshotManagers: make(map[string]*snapshotManager),
@@ -194,7 +198,12 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 }
 
 func (zs *zsyncer) Run() {
-	if zs.httpAddress != "" {
+	if zs.smtp.Host != "" {
+		if err := sendEmail(zs.smtp, "ZSync startup", "The ZSync daemon started up at "+time.Now().String()+"."); err != nil {
+			zs.log.Printf("unable to send email: %v", err)
+		}
+	}
+	if zs.http.Address != "" {
 		go zs.ServeHTTP()
 	}
 
@@ -265,6 +274,17 @@ func timeoutAfter(d time.Duration) time.Duration {
 	default:
 		return 60 * time.Hour
 	}
+}
+
+func sendEmail(smtp smtpConfig, subject, body string) error {
+	msg := gomail.NewMessage()
+	msg.SetAddressHeader("From", smtp.Username, "ZSync Daemon")
+	msg.SetAddressHeader("To", smtp.ToAddress, smtp.ToName)
+	msg.SetHeader("Subject", subject)
+	msg.SetBody("text/html", body)
+
+	d := gomail.NewDialer(smtp.Host, smtp.Port, smtp.Username, smtp.Password)
+	return d.DialAndSend(msg)
 }
 
 type (

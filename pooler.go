@@ -5,6 +5,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -116,11 +117,21 @@ func (pm *poolMonitor) Run() {
 			pm.statusMu.Lock()
 			if strings.Contains(strings.Split(out, "\n")[0], "is healthy") {
 				if pm.status.State <= 0 {
+					if pm.status.State < 0 {
+						if err := sendEmail(pm.zs.smtp, fmt.Sprintf("Pool %q became healthy", pm.pool), ""); err != nil {
+							pm.zs.log.Printf("unable to send email: %v", err)
+						}
+					}
 					pm.status.State = +2
 					pm.zs.log.Printf("pool %q is healthy", pm.pool)
 				}
 			} else {
 				if pm.status.State >= 0 {
+					if pm.status.State > 0 {
+						if err := sendEmail(pm.zs.smtp, fmt.Sprintf("Pool %q became unhealthy", pm.pool), "<pre>"+out+"</pre>"); err != nil {
+							pm.zs.log.Printf("unable to send email: %v", err)
+						}
+					}
 					pm.status.State = -2
 					pm.zs.log.Printf("pool %q is unhealthy\n%s", pm.pool, indentLines(out))
 				}

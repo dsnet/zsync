@@ -55,11 +55,24 @@ The JSON format used permits the use of comments and takes the following form:
 	// If the path is empty, then the log outputs to os.Stderr.
 	"LogFile": "",
 
+	// SMTP configures a mail client to email about potential issues.
+	// Emails are sent when pools switch health states,
+	// when snapshots cannot be created or deleted, and
+	// when replication fails. Errors due to network failures are ignored.
+	"SMTP": {
+		"Host": "", // E.g., "mail.name.com"
+		"Port": 587,
+		"Username": "", // E.g., "zsync-daemon@example.com"
+		"Password": "",
+		"ToAddress": "", // E.g., "user@example.com"
+		"ToName": "",    // E.g., "FirstName LastName"
+	},
+
 	// HTTP configures a web server to diagnose zsync progress.
-	HTTP: {
+	"HTTP": {
 		// Address is the TCP network address for the server to bind to.
 		// By default, there is no HTTP server enabled.
-		Address: "",
+		"Address": "",
 	},
 
 	// SSH is a map of SSH-related configuration options.
@@ -143,18 +156,9 @@ The JSON format used permits the use of comments and takes the following form:
 type config struct {
 	LogFile string `json:",omitempty"`
 
-	HTTP struct {
-		Address string `json:",omitempty"`
-	}
-
-	// TODO: Add ability to send emails when problems are encountered.
-
-	SSH struct {
-		KeyFiles       []string         `json:",omitempty"`
-		KnownHostFiles []string         `json:",omitempty"`
-		KeepAlive      *keepAliveConfig `json:",omitempty"`
-		LocalhostAlias string           `json:",omitempty"`
-	}
+	SMTP smtpConfig
+	HTTP httpConfig
+	SSH  sshConfig
 
 	// TODO: Add DryRun mode where prints any snapshot|destroy|send|recv
 	// commands to be performed and then exists.
@@ -165,6 +169,26 @@ type config struct {
 	ConcurrentTransfers int
 	datasetOptions
 	Datasets []datasetConfig
+}
+
+type smtpConfig struct {
+	Host      string `json:",omitempty"`
+	Port      int    `json:",omitempty"`
+	Username  string `json:",omitempty"`
+	Password  string `json:",omitempty"`
+	ToAddress string `json:",omitempty"`
+	ToName    string `json:",omitempty"`
+}
+
+type httpConfig struct {
+	Address string `json:",omitempty"`
+}
+
+type sshConfig struct {
+	KeyFiles       []string         `json:",omitempty"`
+	KnownHostFiles []string         `json:",omitempty"`
+	KeepAlive      *keepAliveConfig `json:",omitempty"`
+	LocalhostAlias string           `json:",omitempty"`
 }
 
 type keepAliveConfig struct {
@@ -233,6 +257,9 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 	}
 
 	// Set configuration defaults.
+	if conf.SMTP.Port == 0 {
+		conf.SMTP.Port = 587
+	}
 	if conf.SSH.KeepAlive == nil {
 		conf.SSH.KeepAlive = &keepAliveConfig{Interval: 30, CountMax: 2}
 	}

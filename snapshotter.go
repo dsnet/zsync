@@ -86,6 +86,12 @@ func (sm *snapshotManager) Run() {
 
 		func() {
 			defer recoverError(func(err error) {
+				if xerr, ok := err.(exitError); ok {
+					subject := fmt.Sprintf("Snapshot failure for %q", sm.srcDataset.DatasetPath())
+					if merr := sendEmail(sm.zs.smtp, subject, "<pre>"+xerr.Error()+"</pre>"); merr != nil {
+						sm.zs.log.Printf("unable to send email: %v", merr)
+					}
+				}
 				sm.zs.log.Printf("unexpected error: %v", err)
 				retryDelay = timeoutAfter(retryDelay)
 				sm.timer.Reset(retryDelay)

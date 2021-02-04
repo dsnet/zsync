@@ -160,7 +160,7 @@ func (zs *zsyncer) ServeHTTP() {
 			writeTable(&bb, table, styles)
 		}
 	})
-	zs.log.Fatal(http.ListenAndServe(zs.httpAddress, nil))
+	zs.log.Fatal(http.ListenAndServe(zs.http.Address, nil))
 }
 
 func writeTable(w io.Writer, table [][]string, styles map[[2]int]string) {

@@ -105,12 +105,18 @@ func (rm *replicaManager) replicate(idx int, replicated, failed *bool) {
 		return
 	}
 
+	src, dst := rm.srcDataset, rm.dstDatasets[idx]
+
 	defer recoverError(func(err error) {
+		if xerr, ok := err.(exitError); ok {
+			subject := fmt.Sprintf("Replication failure from %q to %q", src.DatasetPath(), src.DatasetPath())
+			if merr := sendEmail(rm.zs.smtp, subject, "<pre>"+xerr.Error()+"</pre>"); merr != nil {
+				rm.zs.log.Printf("unable to send email: %v", merr)
+			}
+		}
 		rm.zs.log.Printf("unexpected error: %v", err)
 		*failed = true
 	})
-
-	src, dst := rm.srcDataset, rm.dstDatasets[idx]
 
 	// Open an executor for the source and destination dataset.
 	srcExec, err := openExecutor(rm.zs.ctx, src.target)
