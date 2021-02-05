@@ -110,7 +110,7 @@ The JSON format used permits the use of comments and takes the following form:
 		"Cron": "@daily", // E.g., "0 0 * * * *"
 
 		// TimeZone is the time zone to run the cron schedule in.
-		"TimeZone": "UTC", // E.g., "Local" or "America/Los_Angeles"
+		"TimeZone": "Local", // E.g., "UTC" or "America/Los_Angeles"
 
 		// Snapshots are automatically deleted after this many are made.
 		// Snapshots are only deleted if there exist at least some
@@ -267,7 +267,7 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 		conf.ConcurrentTransfers = 1
 	}
 	if conf.AutoSnapshot == nil {
-		conf.AutoSnapshot = &snapshotOptions{Cron: "@daily", TimeZone: "UTC"}
+		conf.AutoSnapshot = &snapshotOptions{Cron: "@daily", TimeZone: "Local"}
 	}
 
 	// Print the configuration.
