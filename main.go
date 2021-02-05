@@ -117,6 +117,11 @@ The JSON format used permits the use of comments and takes the following form:
 		// common snapshot across the source and all mirrors.
 		// A zero value indicates that snapshots are never deleted.
 		"Count": 0,
+
+		// SkipEmpty skips taking a snapshot if the data used by the
+		// latest snapshot is 0B, indicating that no mutations have occurred
+		// to the dataset since the latest snapshot.
+		"SkipEmpty": false,
 	},
 
 	// SendFlags is a list of flags to pass in when invoking "zfs send".
@@ -230,9 +235,10 @@ type datasetOptions struct {
 }
 
 type snapshotOptions struct {
-	Cron     string `json:",omitempty"`
-	TimeZone string `json:",omitempty"`
-	Count    int    `json:",omitempty"`
+	Cron      string `json:",omitempty"`
+	TimeZone  string `json:",omitempty"`
+	Count     int    `json:",omitempty"`
+	SkipEmpty bool   `json:",omitempty"`
 }
 
 func loadConfig(path string) (conf config, logger *log.Logger, closer func() error) {

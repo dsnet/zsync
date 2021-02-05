@@ -24,9 +24,10 @@ type snapshotManager struct {
 	srcDataset  dataset
 	dstDatasets []dataset
 
-	sched    cron.Schedule
-	timeZone *time.Location
-	count    int
+	sched     cron.Schedule
+	timeZone  *time.Location
+	count     int
+	skipEmpty bool
 
 	signal chan struct{}
 	timer  *time.Timer
@@ -39,16 +40,17 @@ type snapshotStatus struct {
 	Latest string
 }
 
-func (zs *zsyncer) RegisterSnapshotManager(src dataset, dsts []dataset, sched cron.Schedule, tz *time.Location, count int) {
+func (zs *zsyncer) RegisterSnapshotManager(src dataset, dsts []dataset, sched cron.Schedule, tz *time.Location, count int, skipEmpty bool) {
 	sm := &snapshotManager{
 		zs: zs,
 
 		srcDataset:  src,
 		dstDatasets: dsts,
 
-		sched:    sched,
-		timeZone: tz,
-		count:    count,
+		sched:     sched,
+		timeZone:  tz,
+		count:     count,
+		skipEmpty: skipEmpty,
 
 		signal: make(chan struct{}, 1),
 		timer:  time.NewTimer(0),
@@ -103,19 +105,30 @@ func (sm *snapshotManager) Run() {
 			defer srcExec.Close()
 
 			// Determine if we need to make a dataset.
-			if !makeSnapshot {
-				ss, err := listSnapshots(srcExec, sm.srcDataset.name)
+			ss, err := listSnapshots(srcExec, sm.srcDataset.name)
+			checkError(err)
+			if len(ss) > 0 {
+				sm.statusMu.Lock()
+				sm.statuses[0].Latest = ss[len(ss)-1]
+				sm.statusMu.Unlock()
+			}
+			if !makeSnapshot && len(ss) == 0 {
+				makeSnapshot = true // No snapshots, so make first one
+			}
+			if makeSnapshot && len(ss) > 0 && sm.skipEmpty {
+				isempty, err := isEmptySnapshot(srcExec, sm.srcDataset.name, ss[len(ss)-1])
 				checkError(err)
-				makeSnapshot = len(ss) == 0 // No snapshots, so make first one
-				if len(ss) > 0 {
-					sm.statusMu.Lock()
-					sm.statuses[0].Latest = ss[len(ss)-1]
-					sm.statusMu.Unlock()
+				if isempty {
+					snapshot := time.Now().UTC().Format(time.RFC3339)
+					sm.zs.log.Printf("skipping snapshot (no changes detected): %s", sm.srcDataset.SnapshotPath(snapshot))
+					makeSnapshot = false
 				}
 			}
+
+			// Take a snapshot.
 			if makeSnapshot {
 				snapshot := time.Now().UTC().Format(time.RFC3339)
-				sm.zs.log.Printf("creating snapshot: %s", sm.srcDataset.SnapshotName(snapshot))
+				sm.zs.log.Printf("creating snapshot: %s", sm.srcDataset.SnapshotPath(snapshot))
 				checkError(createSnapshot(srcExec, sm.srcDataset.name, snapshot))
 				makeSnapshot = false
 
@@ -158,12 +171,12 @@ func (sm *snapshotManager) Run() {
 				// exists between the source and all destination datasets.
 				destroy2D, _ := filterSnapshots(append([]snapshots{srcSnapshots}, dstSnapshots2D...), sm.count)
 				if ss := destroy2D[0]; len(ss) > 0 {
-					sm.zs.log.Printf("destroying snapshots: %s", sm.srcDataset.SnapshotName(strings.Join(ss, ",")))
+					sm.zs.log.Printf("destroying snapshots: %s", sm.srcDataset.SnapshotPath(strings.Join(ss, ",")))
 					checkError(destroySnapshots(srcExec, sm.srcDataset.name, ss))
 				}
 				for i := range sm.dstDatasets {
 					if ss := destroy2D[i+1]; len(ss) > 0 {
-						sm.zs.log.Printf("destroying snapshots: %s", sm.dstDatasets[i].SnapshotName(strings.Join(ss, ",")))
+						sm.zs.log.Printf("destroying snapshots: %s", sm.dstDatasets[i].SnapshotPath(strings.Join(ss, ",")))
 						checkError(destroySnapshots(dstExecs[i], sm.dstDatasets[i].name, ss))
 					}
 				}
@@ -196,6 +209,15 @@ func listSnapshots(exec *executor, dataset string) (snapshots, error) {
 		}
 	}
 	return ss, nil
+}
+
+func isEmptySnapshot(exec *executor, dataset, snapshot string) (bool, error) {
+	name := fmt.Sprintf("%s@%s", dataset, snapshot)
+	out, err := exec.Exec("zfs", "get", "-H", "-o", "value", "used", name)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) == "0B", nil
 }
 
 func createSnapshot(exec *executor, dataset, snapshot string) error {

@@ -192,7 +192,7 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 		// Register the pool monitors, dataset replicator, and dataset manager.
 		zs.RegisterPoolMonitors(src, dsts)
 		zs.RegisterReplicaManager(src, dsts, sendFlags, recvFlags)
-		zs.RegisterSnapshotManager(src, dsts, sched, tz, ssOpts.Count)
+		zs.RegisterSnapshotManager(src, dsts, sched, tz, ssOpts.Count, ssOpts.SkipEmpty)
 	}
 	return zs
 }
