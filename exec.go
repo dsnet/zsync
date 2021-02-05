@@ -18,8 +18,9 @@ import (
 )
 
 type executor struct {
-	// Set only if executing remotely through crypto/ssh.
 	host      string
+
+	// Set only if executing remotely through crypto/ssh.
 	client    *ssh.Client
 	keepAlive keepAliveConfig
 
