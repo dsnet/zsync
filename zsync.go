@@ -272,7 +272,7 @@ func timeoutAfter(d time.Duration) time.Duration {
 	case d < 30*time.Minute:
 		return 30 * time.Minute
 	default:
-		return 60 * time.Hour
+		return 60 * time.Minute
 	}
 }
 
