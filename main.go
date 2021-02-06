@@ -273,7 +273,13 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 		conf.ConcurrentTransfers = 1
 	}
 	if conf.AutoSnapshot == nil {
-		conf.AutoSnapshot = &snapshotOptions{Cron: "@daily", TimeZone: "Local"}
+		conf.AutoSnapshot = &snapshotOptions{}
+	}
+	if conf.AutoSnapshot.Cron == "" {
+		conf.AutoSnapshot.Cron = "@daily"
+	}
+	if conf.AutoSnapshot.TimeZone == "" {
+		conf.AutoSnapshot.TimeZone = "Local"
 	}
 
 	// Print the configuration.
