@@ -211,13 +211,32 @@ func listSnapshots(exec *executor, dataset string) (snapshots, error) {
 	return ss, nil
 }
 
-func isEmptySnapshot(exec *executor, dataset, snapshot string) (bool, error) {
-	name := fmt.Sprintf("%s@%s", dataset, snapshot)
-	out, err := exec.Exec("zfs", "get", "-H", "-o", "value", "used", name)
+// isEmptySnapshot reports whether there have been any changes since the
+// latest snapshot.
+func isEmptySnapshot(exec *executor, dataset, latestSnapshot string) (bool, error) {
+	// Exactly zero means that the dataset is pristine.
+	out, err := exec.Exec("zfs", "get", "-Hp", "-o", "value", "written", dataset)
 	if err != nil {
 		return false, err
 	}
-	return strings.TrimSpace(out) == "0B", nil
+	if strings.TrimSpace(out) == "0" {
+		return true, nil
+	}
+	if len(strings.TrimSpace(out)) > 6 {
+		return false, nil // more than 1e6 bytes written
+	}
+
+	// Small non-zero value may imply semantically insignificant changes
+	// have been written (perhaps as part of ZFS's own book-keeping logic).
+	// Rely on `zfs diff` to report any further changes.
+	name := fmt.Sprintf("%s@%s", dataset, latestSnapshot)
+	diff, err := exec.Exec("zfs", "diff", name)
+	if err != nil {
+		// Ignore error since this may fail for non-mounted datasets or
+		// due to permssion denied, so conservatively assume non-empty.
+		return false, nil
+	}
+	return len(strings.TrimSpace(diff)) == 0, nil
 }
 
 func createSnapshot(exec *executor, dataset, snapshot string) error {
