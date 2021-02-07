@@ -123,9 +123,9 @@ func (pm *poolMonitor) Run() {
 							pm.zs.log.Printf("unable to send email: %v", err)
 						}
 					}
-					pm.status.State = +2
 					pm.zs.log.Printf("pool %q is healthy", id)
 				}
+				pm.status.State = +2
 			} else {
 				if pm.status.State >= 0 {
 					id := dataset{pm.pool, pm.target}.PoolPath()
@@ -134,9 +134,9 @@ func (pm *poolMonitor) Run() {
 							pm.zs.log.Printf("unable to send email: %v", err)
 						}
 					}
-					pm.status.State = -2
 					pm.zs.log.Printf("pool %q is unhealthy\n%s", id, indentLines(out))
 				}
+				pm.status.State = -2
 			}
 			pm.statusMu.Unlock()
 			retryDelay = 0
