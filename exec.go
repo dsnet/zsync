@@ -18,7 +18,7 @@ import (
 )
 
 type executor struct {
-	host      string
+	host string
 
 	// Set only if executing remotely through crypto/ssh.
 	client    *ssh.Client
