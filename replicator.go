@@ -127,13 +127,13 @@ func (rm *replicaManager) replicate(idx int, replicated, failed *bool) {
 	defer dstExec.Close()
 
 	// Resume a partial receive if there is a token.
-	s, err := dstExec.Exec("zfs", "get", "-H", "receive_resume_token", dst.name)
-	if toks := strings.Split(s, "\t"); err == nil && len(toks) > 2 && len(toks[2]) > 1 {
+	s, err := dstExec.Exec("zfs", "get", "-H", "-o", "value", "receive_resume_token", dst.name)
+	if tok := strings.TrimSpace(s); err == nil && len(tok) > 1 {
 		rm.transfer(idx, transferArgs{
 			Mode:     "partial",
 			SrcLabel: src.DatasetPath(),
 			DstLabel: dst.DatasetPath(),
-			SendArgs: zsendArgs("-t", toks[2]),
+			SendArgs: zsendArgs("-t", tok),
 			RecvArgs: zrecvArgs(rm.recvFlags, dst.name),
 			SrcExec:  srcExec, DstExec: dstExec,
 		})
