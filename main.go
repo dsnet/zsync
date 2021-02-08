@@ -281,6 +281,14 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 	if conf.AutoSnapshot.TimeZone == "" {
 		conf.AutoSnapshot.TimeZone = "Local"
 	}
+	for _, ds := range conf.Datasets {
+		if ds.AutoSnapshot != nil && ds.AutoSnapshot.Cron == "" {
+			ds.AutoSnapshot.Cron = "@daily"
+		}
+		if ds.AutoSnapshot != nil && ds.AutoSnapshot.TimeZone == "" {
+			ds.AutoSnapshot.TimeZone = "Local"
+		}
+	}
 
 	// Print the configuration.
 	var b bytes.Buffer
