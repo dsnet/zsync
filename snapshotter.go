@@ -136,36 +136,50 @@ func (sm *snapshotManager) Run() {
 				trySignal(sm.zs.replicaManagers[sm.srcDataset.DatasetPath()].signal)
 			}
 
-			// Delete old snapshots.
+			// Retrieve information about snapshots and maybe delete old ones.
 			if sm.count > 0 {
+				var errFirst error
+
 				// Open executors for all of the destinations.
 				var dstExecs []*executor
 				for _, dstDataset := range sm.dstDatasets {
 					dstExec, err := openExecutor(sm.zs.ctx, dstDataset.target)
-					checkError(err)
-					defer dstExec.Close()
+					if err != nil {
+						errFirst = err
+					} else {
+						defer dstExec.Close()
+					}
 					dstExecs = append(dstExecs, dstExec)
 				}
 
 				// Retrieve all snapshots on the source and all destinations.
 				srcSnapshots, err := listSnapshots(srcExec, sm.srcDataset.name)
-				checkError(err)
-				if len(srcSnapshots) > 0 {
+				if err != nil {
+					errFirst = err
+				} else if len(srcSnapshots) > 0 {
 					sm.statusMu.Lock()
 					sm.statuses[0].Latest = srcSnapshots[len(srcSnapshots)-1]
 					sm.statusMu.Unlock()
 				}
 				var dstSnapshots2D []snapshots
 				for i := range sm.dstDatasets {
+					if dstExecs[i] == nil {
+						continue // best-effort to retrieve snapshot data
+					}
 					ss, err := listSnapshots(dstExecs[i], sm.dstDatasets[i].name)
-					checkError(err)
-					if len(ss) > 0 {
+					if err != nil {
+						errFirst = err
+					} else if len(ss) > 0 {
 						sm.statusMu.Lock()
 						sm.statuses[1+i].Latest = ss[len(ss)-1]
 						sm.statusMu.Unlock()
 					}
 					dstSnapshots2D = append(dstSnapshots2D, ss)
 				}
+
+				// The deletion logic below relies on information about
+				// snapshots being fully consistent.
+				checkError(errFirst)
 
 				// Destroy old snapshots, ensuring at least one common snapshot
 				// exists between the source and all destination datasets.
