@@ -29,13 +29,15 @@ type executor struct {
 }
 
 // execTarget represents a target for where execution occur.
-// If the target host is "localhost",
+// If the target host is "localhost" or isLocalhost is true,
 // then subprocesses are run locally using the os/exec package.
 // Otherwise, subprocesses are run remotely using the crypto/ssh package.
 type execTarget struct {
 	user string
-	host string // Set to "localhost" if running locally
+	host string
 	port string
+
+	isLocalhost bool
 
 	// These must be set for SSH authentication and tuning.
 	auth      []ssh.AuthMethod
@@ -48,7 +50,7 @@ type execTarget struct {
 func openExecutor(ctx context.Context, t execTarget) (*executor, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	x := &executor{ctx: ctx, cancel: cancel}
-	if t.host == "localhost" {
+	if t.host == "localhost" || t.isLocalhost {
 		return x, nil
 	}
 

@@ -83,10 +83,10 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 
 	// Process SSH-related configuration options.
 	var (
-		auth       []ssh.AuthMethod
-		hostKeys   ssh.HostKeyCallback
-		keepAlive  keepAliveConfig
-		localAlias string
+		auth         []ssh.AuthMethod
+		hostKeys     ssh.HostKeyCallback
+		keepAlive    keepAliveConfig
+		localAliases []string
 	)
 
 	// Parse all of the private keys.
@@ -118,14 +118,18 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 	}
 
 	keepAlive = *conf.SSH.KeepAlive
-	localAlias = conf.SSH.LocalhostAlias
+	localAliases = conf.SSH.LocalhostAliases
 
 	// Process each of the dataset sources and their mirrors.
 	for _, ds := range conf.Datasets {
 		makeDataset := func(dp datasetPath) dataset {
 			ds := dataset{strings.Trim(dp.Path, "/"), execTarget{host: dp.Hostname()}}
-			if host := ds.target.host; host == "localhost" || host == localAlias {
-				ds.target.host = "localhost"
+			isLocalhost := ds.target.host == "localhost"
+			for _, alias := range localAliases {
+				isLocalhost = isLocalhost || ds.target.host == alias
+			}
+			if isLocalhost {
+				ds.target.isLocalhost = true
 				return ds
 			}
 

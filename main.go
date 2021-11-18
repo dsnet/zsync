@@ -93,10 +93,10 @@ The JSON format used permits the use of comments and takes the following form:
 			"Interval": 30, "CountMax": 2,
 		},
 
-		// LocalhostAlias considers the hostname provided to be equivalent
+		// LocalhostAliases considers hostnames provided to be equivalent
 		// to "localhost". This allows a vanity hostname to be used, yet
 		// allowing the use of OS subprocesses instead of SSH subprocesses.
-		"LocalhostAlias": "", // E.g., ["myhostname.local"]
+		"LocalhostAliases": null, // E.g., ["myhostname.local"]
 	},
 
 	// ConcurrentTransfers specifies the maximum number of concurrent transfers
@@ -145,7 +145,7 @@ The JSON format used permits the use of comments and takes the following form:
 		//	//[userinfo@]host[:port]/pool/dataset
 		// where the userinfo and port are optional.
 		//
-		// If the host is "localhost" or the same value as LocalhostAlias,
+		// If the host is "localhost" or the same value as LocalhostAliases,
 		// then this dataset is accessed using an OS subprocess.
 		//
 		// Otherwise, the userinfo, host, port, and SSH options from above are
@@ -190,10 +190,10 @@ type httpConfig struct {
 }
 
 type sshConfig struct {
-	KeyFiles       []string         `json:",omitempty"`
-	KnownHostFiles []string         `json:",omitempty"`
-	KeepAlive      *keepAliveConfig `json:",omitempty"`
-	LocalhostAlias string           `json:",omitempty"`
+	KeyFiles         []string         `json:",omitempty"`
+	KnownHostFiles   []string         `json:",omitempty"`
+	KeepAlive        *keepAliveConfig `json:",omitempty"`
+	LocalhostAliases []string         `json:",omitempty"`
 }
 
 type keepAliveConfig struct {
