@@ -70,6 +70,8 @@ func (zs *zsyncer) ServeHTTP() {
 			writeTable(&bb, table, styles)
 		}
 
+		io.WriteString(&bb, "<br>\n")
+
 		// Print snapshot statuses.
 		{
 			table := [][]string{{"Dataset", "Latest Snapshot"}}
@@ -118,6 +120,8 @@ func (zs *zsyncer) ServeHTTP() {
 			writeTable(&bb, table, styles)
 		}
 
+		io.WriteString(&bb, "<br>\n")
+
 		// Print replication statuses.
 		{
 			table := [][]string{{"Started", "Source", "Destination", "Transferred", "Status"}}
@@ -165,7 +169,7 @@ func (zs *zsyncer) ServeHTTP() {
 
 func writeTable(w io.Writer, table [][]string, styles map[[2]int]string) {
 	io.WriteString(w, "<table>\n<tbody>\n")
-	defer io.WriteString(w, "</tbody>\n</table>\n<br>\n")
+	defer io.WriteString(w, "</tbody>\n</table>\n")
 	for i, row := range table {
 		tag := "th"
 		if i > 0 {
