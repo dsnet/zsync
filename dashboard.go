@@ -164,7 +164,12 @@ func (zs *zsyncer) ServeHTTP() {
 			writeTable(&bb, table, styles)
 		}
 	})
-	zs.log.Fatal(http.ListenAndServe(zs.http.Address, nil))
+	for {
+		if err := http.ListenAndServe(zs.http.Address, nil); err != nil {
+			zs.log.Printf("http.ListenAndServe error: %v", err)
+			time.Sleep(30 * time.Second)
+		}
+	}
 }
 
 func writeTable(w io.Writer, table [][]string, styles map[[2]int]string) {
