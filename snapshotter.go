@@ -209,7 +209,7 @@ type snapshots []string
 var dateRegex = regexp.MustCompile("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 
 func listSnapshots(exec *executor, dataset string) (snapshots, error) {
-	list, err := exec.Exec("zfs", "list", "-H", "-r", "-t", "snapshot", "-o", "name", dataset)
+	list, err := exec.Exec("zfs", "list", "-H", "-t", "snapshot", "-o", "name", dataset)
 	if err != nil {
 		return nil, err
 	}
