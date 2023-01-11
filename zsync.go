@@ -202,11 +202,6 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 }
 
 func (zs *zsyncer) Run() {
-	if zs.smtp.Host != "" {
-		if err := sendEmail(zs.smtp, "ZSync startup", "The ZSync daemon started up at "+time.Now().String()+"."); err != nil {
-			zs.log.Printf("unable to send email: %v", err)
-		}
-	}
 	if zs.http.Address != "" {
 		go zs.ServeHTTP()
 	}
