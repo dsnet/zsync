@@ -82,39 +82,35 @@ func (zs *zsyncer) ServeHTTP() {
 			}
 			sort.Strings(ids)
 			for _, id := range ids {
-				statuses := zs.snapshotManagers[id].Status()
-				for i, status := range statuses {
-					var label, latest, style string
-					if i == 0 { // source dataset
-						label = id
-						switch status.Latest {
-						case "":
-							latest = "❓ UNKNOWN"
-							style = "background-color:#ffffd0;" // yellow
-						default:
-							latest = "✅ " + status.Latest
-							style = "background-color:#d0ffd0;" // green
-						}
-					} else { // destination dataset
-						if i < len(statuses)-1 {
-							label = "├── " + zs.snapshotManagers[id].dstDatasets[i-1].DatasetPath()
-						} else {
-							label = "└── " + zs.snapshotManagers[id].dstDatasets[i-1].DatasetPath()
-						}
-						switch status.Latest {
-						case "":
-							latest = "❓ UNKNOWN"
-							style = "background-color:#ffffd0;" // yellow
-						case statuses[0].Latest:
-							latest = "✅ " + status.Latest
-							style = "background-color:#d0ffd0;" // green
-						default:
-							latest = "❌ " + status.Latest
-							style = "background-color:#ffd0d0;" // red
-						}
+				sm := zs.snapshotManagers[id]
+
+				srcLatest := sm.srcDataset.latestSnapshot.Load()
+				switch srcLatest {
+				case "":
+					styles[[2]int{len(table), 1}] = "background-color:#ffffd0;" // yellow
+					table = append(table, []string{id, "❓ UNKNOWN"})
+				default:
+					styles[[2]int{len(table), 1}] = "background-color:#d0ffd0;" // green
+					table = append(table, []string{id, "✅ " + srcLatest})
+				}
+
+				for i, dst := range sm.dstDatasets {
+					label := "├── " + dst.DatasetPath()
+					if i == len(sm.dstDatasets)-1 {
+						label = "└── " + dst.DatasetPath()
 					}
-					styles[[2]int{len(table), 1}] = style
-					table = append(table, []string{label, latest})
+					dstLatest := dst.latestSnapshot.Load()
+					switch dstLatest {
+					case "":
+						styles[[2]int{len(table), 1}] = "background-color:#ffffd0;" // yellow
+						table = append(table, []string{label, "❓ UNKNOWN"})
+					case srcLatest:
+						styles[[2]int{len(table), 1}] = "background-color:#d0ffd0;" // green
+						table = append(table, []string{label, "✅ " + dstLatest})
+					default:
+						styles[[2]int{len(table), 1}] = "background-color:#ffd0d0;" // red
+						table = append(table, []string{label, "❌ " + dstLatest})
+					}
 				}
 			}
 			writeTable(&bb, table, styles)

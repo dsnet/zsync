@@ -23,6 +23,8 @@ import (
 type dataset struct {
 	name   string
 	target execTarget
+
+	latestSnapshot *atomicString
 }
 
 // PoolPath returns the pool path (e.g., ""//host/pool").
@@ -123,7 +125,11 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 	// Process each of the dataset sources and their mirrors.
 	for _, ds := range conf.Datasets {
 		makeDataset := func(dp datasetPath) dataset {
-			ds := dataset{strings.Trim(dp.Path, "/"), execTarget{host: dp.Hostname()}}
+			ds := dataset{
+				name:           strings.Trim(dp.Path, "/"),
+				target:         execTarget{host: dp.Hostname()},
+				latestSnapshot: new(atomicString),
+			}
 			isLocalhost := ds.target.host == "localhost"
 			for _, alias := range localAliases {
 				isLocalhost = isLocalhost || ds.target.host == alias
@@ -293,3 +299,20 @@ type (
 
 func (f funcReader) Read(b []byte) (int, error)  { return f(b) }
 func (f funcWriter) Write(b []byte) (int, error) { return f(b) }
+
+type atomicString struct {
+	mu sync.Mutex
+	v  string
+}
+
+func (p *atomicString) Load() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.v
+}
+
+func (p *atomicString) Store(s string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.v = s
+}

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dsnet/golib/cron"
@@ -31,13 +30,6 @@ type snapshotManager struct {
 
 	signal chan struct{}
 	timer  *time.Timer
-
-	statusMu sync.Mutex
-	statuses []snapshotStatus // first is source, followed by all destinations
-}
-
-type snapshotStatus struct {
-	Latest string
 }
 
 func (zs *zsyncer) RegisterSnapshotManager(src dataset, dsts []dataset, sched cron.Schedule, tz *time.Location, count int, skipEmpty bool) {
@@ -54,20 +46,12 @@ func (zs *zsyncer) RegisterSnapshotManager(src dataset, dsts []dataset, sched cr
 
 		signal: make(chan struct{}, 1),
 		timer:  time.NewTimer(0),
-
-		statuses: make([]snapshotStatus, 1+len(dsts)),
 	}
 	id := src.DatasetPath()
 	if _, ok := zs.snapshotManagers[id]; ok {
 		zs.log.Fatalf("%s already registered", id)
 	}
 	zs.snapshotManagers[id] = sm
-}
-
-func (sm *snapshotManager) Status() []snapshotStatus {
-	sm.statusMu.Lock()
-	defer sm.statusMu.Unlock()
-	return append([]snapshotStatus(nil), sm.statuses...)
 }
 
 func (sm *snapshotManager) Run() {
@@ -108,9 +92,7 @@ func (sm *snapshotManager) Run() {
 			ss, err := listSnapshots(srcExec, sm.srcDataset.name)
 			checkError(err)
 			if len(ss) > 0 {
-				sm.statusMu.Lock()
-				sm.statuses[0].Latest = ss[len(ss)-1]
-				sm.statusMu.Unlock()
+				sm.srcDataset.latestSnapshot.Store(ss[len(ss)-1])
 			}
 			if !makeSnapshot && len(ss) == 0 {
 				makeSnapshot = true // No snapshots, so make first one
@@ -157,9 +139,7 @@ func (sm *snapshotManager) Run() {
 				if err != nil {
 					errFirst = err
 				} else if len(srcSnapshots) > 0 {
-					sm.statusMu.Lock()
-					sm.statuses[0].Latest = srcSnapshots[len(srcSnapshots)-1]
-					sm.statusMu.Unlock()
+					sm.srcDataset.latestSnapshot.Store(srcSnapshots[len(srcSnapshots)-1])
 				}
 				var dstSnapshots2D []snapshots
 				for i := range sm.dstDatasets {
@@ -170,9 +150,7 @@ func (sm *snapshotManager) Run() {
 					if err != nil {
 						errFirst = err
 					} else if len(ss) > 0 {
-						sm.statusMu.Lock()
-						sm.statuses[1+i].Latest = ss[len(ss)-1]
-						sm.statusMu.Unlock()
+						sm.dstDatasets[i].latestSnapshot.Store(ss[len(ss)-1])
 					}
 					dstSnapshots2D = append(dstSnapshots2D, ss)
 				}

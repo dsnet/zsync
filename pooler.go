@@ -53,7 +53,7 @@ func (zs *zsyncer) registerPoolMonitor(ds dataset) {
 		signal: make(chan struct{}, 1),
 		timer:  time.NewTimer(0),
 	}
-	id := dataset{pool, ds.target}.PoolPath()
+	id := dataset{name: pool, target: ds.target}.PoolPath()
 	if _, ok := zs.poolMonitors[id]; ok {
 		zs.log.Fatalf("%s already registered", id)
 	}
@@ -117,7 +117,7 @@ func (pm *poolMonitor) Run() {
 			pm.statusMu.Lock()
 			if strings.Contains(strings.Split(out, "\n")[0], "is healthy") {
 				if pm.status.State <= 0 {
-					id := dataset{pm.pool, pm.target}.PoolPath()
+					id := dataset{name: pm.pool, target: pm.target}.PoolPath()
 					if pm.status.State < 0 {
 						if err := sendEmail(pm.zs.smtp, fmt.Sprintf("Pool %q became healthy", id), ""); err != nil {
 							pm.zs.log.Printf("unable to send email: %v", err)
@@ -128,7 +128,7 @@ func (pm *poolMonitor) Run() {
 				pm.status.State = +2
 			} else {
 				if pm.status.State >= 0 {
-					id := dataset{pm.pool, pm.target}.PoolPath()
+					id := dataset{name: pm.pool, target: pm.target}.PoolPath()
 					if pm.status.State > 0 {
 						if err := sendEmail(pm.zs.smtp, fmt.Sprintf("Pool %q became unhealthy", id), "<pre>"+out+"</pre>"); err != nil {
 							pm.zs.log.Printf("unable to send email: %v", err)

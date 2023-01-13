@@ -146,6 +146,8 @@ func (rm *replicaManager) replicate(idx int, replicated, failed *bool) {
 		checkError(err)
 		if len(srcSnapshots) == 0 {
 			return
+		} else {
+			src.latestSnapshot.Store(srcSnapshots[len(srcSnapshots)-1])
 		}
 		dstSnapshots, err := listSnapshots(dstExec, dst.name)
 		if xerr, ok := err.(exitError); ok && strings.Contains(xerr.Stderr, "does not exist") {
@@ -165,6 +167,8 @@ func (rm *replicaManager) replicate(idx int, replicated, failed *bool) {
 			})
 			*replicated = true
 			continue
+		} else {
+			dst.latestSnapshot.Store(dstSnapshots[len(dstSnapshots)-1])
 		}
 
 		// Use last destination snapshot for incremental send.
