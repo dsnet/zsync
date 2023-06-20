@@ -55,6 +55,10 @@ The JSON format used permits the use of comments and takes the following form:
 	// If the path is empty, then the log outputs to os.Stderr.
 	"LogFile": "",
 
+	// LogExcludeTimestamp specifies that a timestamp should not be logged.
+	// This is useful if another mechanism (e.g., systemd) records timestamps.
+	"LogExcludeTimestamp": false,
+
 	// SMTP configures a mail client to email about potential issues.
 	// Emails are sent when pools switch health states,
 	// when snapshots cannot be created or deleted, and
@@ -159,7 +163,8 @@ The JSON format used permits the use of comments and takes the following form:
 }`
 
 type config struct {
-	LogFile string `json:",omitempty"`
+	LogFile             string `json:",omitempty"`
+	LogExcludeTimestamp bool   `json:",omitempty"`
 
 	SMTP smtpConfig
 	HTTP httpConfig
@@ -243,7 +248,11 @@ type snapshotOptions struct {
 
 func loadConfig(path string) (conf config, logger *log.Logger, closer func() error) {
 	var logBuf bytes.Buffer
-	logger = log.New(io.MultiWriter(os.Stderr, &logBuf), "", log.Ldate|log.Ltime|log.Lshortfile)
+	flags := log.Lshortfile
+	if !conf.LogExcludeTimestamp {
+		flags |= log.Ldate | log.Ltime
+	}
+	logger = log.New(io.MultiWriter(os.Stderr, &logBuf), "", flags)
 
 	var hash string
 	if b, _ := ioutil.ReadFile(os.Args[0]); len(b) > 0 {
