@@ -114,7 +114,7 @@ func (rm *replicaManager) replicate(idx int, replicated, failed *bool) {
 				rm.zs.log.Printf("unable to send email: %v", merr)
 			}
 		}
-		rm.zs.log.Printf("unexpected error: %v", err)
+		rm.zs.log.Printf("dataset %s: replication error: %v", dst.DatasetPath(), err)
 		*failed = true
 	})
 

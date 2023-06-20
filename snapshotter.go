@@ -78,7 +78,7 @@ func (sm *snapshotManager) Run() {
 						sm.zs.log.Printf("unable to send email: %v", merr)
 					}
 				}
-				sm.zs.log.Printf("unexpected error: %v", err)
+				sm.zs.log.Printf("dataset %s: snapshot error: %v", sm.srcDataset.DatasetPath(), err)
 				retryDelay = timeoutAfter(retryDelay)
 				sm.timer.Reset(retryDelay)
 			})

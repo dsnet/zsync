@@ -98,7 +98,8 @@ func (pm *poolMonitor) Run() {
 				}
 				pm.statusMu.Unlock()
 
-				pm.zs.log.Printf("unexpected error: %v", err)
+				id := dataset{name: pm.pool, target: pm.target}.PoolPath()
+				pm.zs.log.Printf("pool %s: unexpected error: %v", id, err)
 				retryDelay = timeoutAfter(retryDelay)
 				pm.timer.Reset(retryDelay)
 				tryCloseExec()
