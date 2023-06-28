@@ -248,11 +248,7 @@ type snapshotOptions struct {
 
 func loadConfig(path string) (conf config, logger *log.Logger, closer func() error) {
 	var logBuf bytes.Buffer
-	flags := log.Lshortfile
-	if !conf.LogExcludeTimestamp {
-		flags |= log.Ldate | log.Ltime
-	}
-	logger = log.New(io.MultiWriter(os.Stderr, &logBuf), "", flags)
+	logger = log.New(io.MultiWriter(os.Stderr, &logBuf), "", log.Ldate|log.Ltime|log.Lshortfile)
 
 	var hash string
 	if b, _ := ioutil.ReadFile(os.Args[0]); len(b) > 0 {
@@ -269,6 +265,9 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 	}
 	if err := json.Unmarshal(c, &conf); err != nil {
 		logger.Fatalf("unable to decode config: %v", err)
+	}
+	if conf.LogExcludeTimestamp {
+		logger.SetFlags(logger.Flags() &^ (log.Ldate | log.Ltime | log.Lmicroseconds))
 	}
 
 	// Set configuration defaults.
