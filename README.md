@@ -20,13 +20,10 @@ feature must be used to enable permissions on certain operations.
 The following permissions should be granted:
 ```bash
 # On all sources:
-sudo zfs allow $USER send $DATASET
+sudo zfs allow $USER send,snapshot,destroy,mount $DATASET
 
 # On all mirrors:
-sudo zfs allow $USER receive,create,mount,mountpoint,readonly $DATASET
-
-# On all sources and mirrors:
-sudo zfs allow $USER snapshot,destroy,mount $DATASET
+sudo zfs allow $USER receive,create,mount,mountpoint,readonly,snapshot,destroy,mount $DATASET
 ```
 
 The `mountpoint` and `readonly` properties are only need when performing the
