@@ -156,9 +156,6 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 				ds.target.user = u.Username
 			}
 			ds.target.keepAlive = keepAlive
-			if len(ds.target.auth) == 0 {
-				logger.Fatal("no authentication methods specified")
-			}
 			if ds.target.hostKeys == nil {
 				logger.Fatal("no hostkey callback specified")
 			}
