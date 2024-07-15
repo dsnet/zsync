@@ -279,7 +279,7 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 	for _, ds := range conf.Datasets {
 		if ds.AutoSnapshot != nil {
 			ds.AutoSnapshot.Cron = cmp.Or(ds.AutoSnapshot.Cron, "@daily")
-			ds.AutoSnapshot.TimeZone = cmp.Or(ds.AutoSnapshot.Cron, "Local")
+			ds.AutoSnapshot.TimeZone = cmp.Or(ds.AutoSnapshot.TimeZone, "Local")
 		}
 	}
 
