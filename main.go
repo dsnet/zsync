@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"cmp"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json/jsontext"
 	"github.com/tailscale/hujson"
 )
 
@@ -36,13 +37,10 @@ feature must be used to enable permissions on certain operations.
 
 The following permissions should be granted:
 	# On all sources:
-	sudo zfs allow $USER send $DATASET
+	sudo zfs allow $USER send,snapshot,destroy,mount $DATASET
 
 	# On all mirrors:
-	sudo zfs allow $USER receive,create,mount,mountpoint,readonly $DATASET
-
-	# On all sources and mirrors:
-	sudo zfs allow $USER snapshot,destroy,mount $DATASET
+	sudo zfs allow $USER receive,create,mount,mountpoint,readonly,snapshot,destroy,mount $DATASET
 
 
 The operation of zsync is configured using a JSON configuration file.
@@ -50,13 +48,16 @@ The JSON format used permits the use of comments and takes the following form:
 {
 	// The default value of each field is shown, unless otherwise specified.
 
-	// LogFile is where the daemon will direct its output log.
-	// If the path is empty, then the log outputs to os.Stderr.
-	"LogFile": "",
+	// Log configures how log lines are produced by zsync.
+	"Log": {
+		// File is where the daemon will direct its output log.
+		// If the path is empty, then the log outputs to os.Stderr.
+		"File": "",
 
-	// LogExcludeTimestamp specifies that a timestamp should not be logged.
-	// This is useful if another mechanism (e.g., systemd) records timestamps.
-	"LogExcludeTimestamp": false,
+		// ExcludeTimestamp specifies that a timestamp should not be logged.
+		// This is useful if another mechanism (e.g., systemd) records timestamps.
+		"ExcludeTimestamp": false,
+	},
 
 	// SMTP configures a mail client to email about potential issues.
 	// Emails are sent when pools switch health states,
@@ -64,12 +65,12 @@ The JSON format used permits the use of comments and takes the following form:
 	// when replication fails. Errors due to network failures are ignored.
 	// If unspecified, then emails are not sent.
 	"SMTP": {
-		"Host": "", // E.g., "mail.name.com"
-		"Port": 587,
-		"Username": "", // E.g., "zsync-daemon@example.com"
-		"Password": "",
-		"ToAddress": "", // E.g., "user@example.com"
-		"ToName": "",    // E.g., "FirstName LastName"
+		"Host":      "", // e.g., "mail.name.com"
+		"Port":      587,
+		"Username":  "", // e.g., "zsync-daemon@example.com"
+		"Password":  "",
+		"ToAddress": "", // e.g., "user@example.com"
+		"ToName":    "", // e.g., "FirstName LastName"
 	},
 
 	// HTTP configures a web server to diagnose zsync progress.
@@ -82,13 +83,13 @@ The JSON format used permits the use of comments and takes the following form:
 	// SSH is a map of SSH-related configuration options.
 	"SSH": {
 		// KeyFiles is a list of SSH private key files.
-		"KeyFiles": null, // E.g., ["key.priv"]
+		"KeyFiles": null, // e.g., ["key.priv"]
 
 		// KnownHostFiles is a list of key database files for host public keys
 		// in the OpenSSH known_hosts file format.
 		//
 		// Host-key checking is disabled if the empty list is specified.
-		"KnownHostFiles": null, // E.g., ["known_hosts"]
+		"KnownHostFiles": null, // e.g., ["known_hosts"]
 
 		// KeepAlive sets the keep alive settings for each SSH connection.
 		// It is recommended that these values match the AliveInterval and
@@ -101,7 +102,7 @@ The JSON format used permits the use of comments and takes the following form:
 		// to "localhost". This allows a vanity hostname to be used, yet
 		// allowing the use of OS subprocesses instead of SSH subprocesses.
 		// The host portion of HTTP.Address is automatically inserted here.
-		"LocalhostAliases": null, // E.g., ["myhostname.local"]
+		"LocalhostAliases": null, // e.g., ["myhostname.local"]
 	},
 
 	// ConcurrentTransfers specifies the maximum number of concurrent transfers
@@ -112,10 +113,10 @@ The JSON format used permits the use of comments and takes the following form:
 	// AutoSnapshot specifies when snapshots are taken and how many to keep.
 	"AutoSnapshot": {
 		// Cron uses the standard cron syntax to specify when snapshots trigger.
-		"Cron": "@daily", // E.g., "0 0 * * * *"
+		"Cron": "@daily", // e.g., "0 0 * * * *"
 
 		// TimeZone is the time zone to run the cron schedule in.
-		"TimeZone": "Local", // E.g., "UTC" or "America/Los_Angeles"
+		"TimeZone": "Local", // e.g., "UTC" or "America/Los_Angeles"
 
 		// Snapshots are automatically deleted after this many are made.
 		// Snapshots are only deleted if there exist at least some
@@ -132,16 +133,16 @@ The JSON format used permits the use of comments and takes the following form:
 	// SendFlags is a list of flags to pass in when invoking "zfs send".
 	// The "-w" flag is useful for transferring data as stored on disk,
 	// when trying to send encrypted and/or compressed datasets.
-	"SendFlags": [], // E.g., ["-w"]
+	"SendFlags": [], // e.g., ["-w"]
 
 	// RecvFlags is a list of flags to pass in when invoking "zfs recv".
 	// Resumable transfers are not enabled by default to support older versions;
 	// pass the "-s" flag to enable use of this ZFS feature.
-	"RecvFlags": [], // E.g., ["-s"]
+	"RecvFlags": [], // e.g., ["-s"]
 
 	// InitRecvFlags is a list of flags to pass in when invoking "zfs recv"
 	// the first time if the destination dataset does not already exist.
-	"InitRecvFlags": [], // E.g., ["-o", "mountpoint=none", "-o", "readonly=on"]
+	"InitRecvFlags": [], // e.g., ["-s", "-o", "mountpoint=none", "-o", "readonly=on"]
 
 	// Datasets is a list of datasets to replicate with "zfs send" and
 	// "zfs recv". By default, there are no datasets specified.
@@ -160,70 +161,76 @@ The JSON format used permits the use of comments and takes the following form:
 		//
 		// Otherwise, the userinfo, host, port, and SSH options from above are
 		// used to access the dataset using a SSH subprocess.
-		"Source": "", // E.g., "//localhost/tank/dataset"
+		"Source": "", // e.g., "//localhost/tank/dataset"
 
 		// Mirrors is a list of remote datasets to replicate the source to.
 		// Each path in the mirror follows the same syntax as the source.
-		"Mirrors": [], // E.g., ["//user@remotehost.local/tank/dataset-mirror"]
+		"Mirrors": [], // e.g., ["//user@remotehost.local/tank/dataset-mirror"]
 	}],
 }`
 
-type config struct {
-	LogFile             string `json:",omitempty"`
-	LogExcludeTimestamp bool   `json:",omitempty"`
-
-	SMTP smtpConfig
-	HTTP httpConfig
-	SSH  sshConfig
+type Config struct {
+	Log  LogConfig
+	SMTP SMTPConfig
+	HTTP HTTPConfig
+	SSH  SSHConfig
 
 	// TODO: Add DryRun mode where prints any snapshot|destroy|send|recv
-	// commands to be performed and then exists.
+	// commands to be performed and then exits.
 
 	// TODO: Add option to control I/O bandwidth globally and per-dataset.
 	// Perhaps even allow controlling the bandwidth based on a cron schedule.
 
 	ConcurrentTransfers int
-	datasetOptions
-	Datasets []datasetConfig
+	DatasetOptions
+	Datasets []DatasetConfig
 }
 
-type smtpConfig struct {
-	Host      string `json:",omitempty"`
-	Port      int    `json:",omitempty"`
-	Username  string `json:",omitempty"`
-	Password  string `json:",omitempty"`
-	ToAddress string `json:",omitempty"`
-	ToName    string `json:",omitempty"`
+type LogConfig struct {
+	File             string `json:",omitzero"`
+	ExcludeTimestamp bool   `json:",omitzero"`
 }
 
-type httpConfig struct {
-	Address string `json:",omitempty"`
+type SMTPConfig struct {
+	Host      string `json:",omitzero"`
+	Port      int    `json:",omitzero"`
+	Username  string `json:",omitzero"`
+	Password  string `json:",omitzero"`
+	ToAddress string `json:",omitzero"`
+	ToName    string `json:",omitzero"`
 }
 
-type sshConfig struct {
-	KeyFiles         []string         `json:",omitempty"`
-	KnownHostFiles   []string         `json:",omitempty"`
-	KeepAlive        *keepAliveConfig `json:",omitempty"`
-	LocalhostAliases []string         `json:",omitempty"`
+type HTTPConfig struct {
+	Address string `json:",omitzero"`
 }
 
-type keepAliveConfig struct {
+type SSHConfig struct {
+	KeyFiles         []string         `json:",omitzero"`
+	KnownHostFiles   []string         `json:",omitzero"`
+	KeepAlive        *KeepAliveConfig `json:",omitzero"`
+	LocalhostAliases []string         `json:",omitzero"`
+}
+
+type KeepAliveConfig struct {
 	Interval uint
 	CountMax uint
 }
 
-type datasetConfig struct {
-	datasetOptions
-	Source  datasetPath
-	Mirrors []datasetPath
+type DatasetConfig struct {
+	DatasetOptions
+	Source  DatasetPath
+	Mirrors []DatasetPath
 }
 
-type datasetPath struct{ *url.URL }
+type DatasetPath struct{ *url.URL }
 
-func (p datasetPath) MarshalJSON() ([]byte, error) {
+func (p DatasetPath) MarshalJSON() ([]byte, error) {
+	if p.URL == nil {
+		return []byte("null"), nil
+	}
 	return json.Marshal(p.String())
 }
-func (p *datasetPath) UnmarshalJSON(b []byte) error {
+func (p *DatasetPath) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
 		return err
@@ -239,21 +246,21 @@ func (p *datasetPath) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-type datasetOptions struct {
-	AutoSnapshot  *snapshotOptions `json:",omitempty"`
-	SendFlags     []string         `json:",omitempty"`
-	RecvFlags     []string         `json:",omitempty"`
-	InitRecvFlags []string         `json:",omitempty"`
+type DatasetOptions struct {
+	AutoSnapshot  *SnapshotOptions `json:",omitzero"`
+	SendFlags     []string         `json:",omitzero"`
+	RecvFlags     []string         `json:",omitzero"`
+	InitRecvFlags []string         `json:",omitzero"`
 }
 
-type snapshotOptions struct {
-	Cron      string `json:",omitempty"`
-	TimeZone  string `json:",omitempty"`
-	Count     int    `json:",omitempty"`
-	SkipEmpty bool   `json:",omitempty"`
+type SnapshotOptions struct {
+	Cron      string `json:",omitzero"`
+	TimeZone  string `json:",omitzero"`
+	Count     int    `json:",omitzero"`
+	SkipEmpty bool   `json:",omitzero"`
 }
 
-func loadConfig(path string) (conf config, logger *log.Logger, closer func() error) {
+func loadConfig(path string) (conf Config, logger *log.Logger, closer func() error) {
 	var logBuf bytes.Buffer
 	logger = log.New(io.MultiWriter(os.Stderr, &logBuf), "", log.Ldate|log.Ltime|log.Lshortfile)
 
@@ -270,18 +277,18 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 	if c, err = hujson.Standardize(c); err != nil {
 		logger.Fatalf("unable to parse config: %v", err)
 	}
-	if err := json.Unmarshal(c, &conf); err != nil {
+	if err := json.Unmarshal(c, &conf, json.RejectUnknownMembers(true)); err != nil {
 		logger.Fatalf("unable to decode config: %v", err)
 	}
-	if conf.LogExcludeTimestamp {
+	if conf.Log.ExcludeTimestamp {
 		logger.SetFlags(logger.Flags() &^ (log.Ldate | log.Ltime | log.Lmicroseconds))
 	}
 
 	// Set configuration defaults.
 	conf.SMTP.Port = cmp.Or(conf.SMTP.Port, 587)
-	conf.SSH.KeepAlive = cmp.Or(conf.SSH.KeepAlive, &keepAliveConfig{Interval: 30, CountMax: 2})
+	conf.SSH.KeepAlive = cmp.Or(conf.SSH.KeepAlive, &KeepAliveConfig{Interval: 30, CountMax: 2})
 	conf.ConcurrentTransfers = cmp.Or(max(0, conf.ConcurrentTransfers), 1)
-	conf.AutoSnapshot = cmp.Or(conf.AutoSnapshot, &snapshotOptions{})
+	conf.AutoSnapshot = cmp.Or(conf.AutoSnapshot, &SnapshotOptions{})
 	conf.AutoSnapshot.Cron = cmp.Or(conf.AutoSnapshot.Cron, "@daily")
 	conf.AutoSnapshot.TimeZone = cmp.Or(conf.AutoSnapshot.TimeZone, "Local")
 	for _, ds := range conf.Datasets {
@@ -292,23 +299,22 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 	}
 
 	// Print the configuration.
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "\t")
-	enc.Encode(struct {
-		config
-		BinaryVersion string `json:",omitempty"`
-		BinarySHA256  string `json:",omitempty"`
-	}{conf, version, hash})
-	logger.Printf("loaded config:\n%s", b.String())
+	b, err := json.Marshal(struct {
+		Config
+		BinaryVersion string `json:",omitzero"`
+		BinarySHA256  string `json:",omitzero"`
+	}{conf, version, hash}, jsontext.WithIndent("\t"))
+	if err != nil {
+		logger.Fatalf("unable to encode config: %v", err)
+	}
+	logger.Printf("loaded config:\n%s", string(b))
 
 	// Setup the log output.
-	if conf.LogFile == "" {
+	if conf.Log.File == "" {
 		logger.SetOutput(os.Stderr)
 		closer = func() error { return nil }
 	} else {
-		f, err := os.OpenFile(conf.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0664)
+		f, err := os.OpenFile(conf.Log.File, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0664)
 		if err != nil {
 			logger.Fatalf("error opening log file: %v", err)
 		}

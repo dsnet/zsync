@@ -22,7 +22,7 @@ type executor struct {
 
 	// Set only if executing remotely through crypto/ssh.
 	client    *ssh.Client
-	keepAlive keepAliveConfig
+	keepAlive KeepAliveConfig
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -42,7 +42,7 @@ type execTarget struct {
 	// These must be set for SSH authentication and tuning.
 	auth      []ssh.AuthMethod
 	hostKeys  ssh.HostKeyCallback
-	keepAlive keepAliveConfig
+	keepAlive KeepAliveConfig
 }
 
 // openExecutor starts a new execution processor for the provided target.

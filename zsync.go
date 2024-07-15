@@ -60,15 +60,15 @@ type zsyncer struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 
-	smtp smtpConfig
-	http httpConfig
+	smtp SMTPConfig
+	http HTTPConfig
 
 	poolMonitors     map[string]*poolMonitor
 	replicaManagers  map[string]*replicaManager
 	snapshotManagers map[string]*snapshotManager
 }
 
-func newZSyncer(conf config, logger *log.Logger) *zsyncer {
+func newZSyncer(conf Config, logger *log.Logger) *zsyncer {
 	ctx, cancel := context.WithCancel(context.Background())
 	zs := &zsyncer{
 		log: logger,
@@ -89,7 +89,7 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 	var (
 		auth         []ssh.AuthMethod
 		hostKeys     ssh.HostKeyCallback
-		keepAlive    keepAliveConfig
+		keepAlive    KeepAliveConfig
 		localAliases []string
 	)
 
@@ -129,7 +129,7 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 
 	// Process each of the dataset sources and their mirrors.
 	for _, ds := range conf.Datasets {
-		makeDataset := func(dp datasetPath) dataset {
+		makeDataset := func(dp DatasetPath) dataset {
 			ds := dataset{
 				name:   strings.Trim(dp.Path, "/"),
 				target: execTarget{host: dp.Hostname()},
@@ -182,7 +182,7 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 		}
 
 		// Parse snapshot manager options.
-		var ssOpts snapshotOptions
+		var ssOpts SnapshotOptions
 		if as := ds.AutoSnapshot; as != nil {
 			ssOpts = *as
 		} else if as := conf.AutoSnapshot; as != nil {
@@ -278,8 +278,8 @@ func timeoutAfter(d time.Duration) time.Duration {
 	}
 }
 
-func sendEmail(smtp smtpConfig, subject, body string) error {
-	if smtp == (smtpConfig{}) {
+func sendEmail(smtp SMTPConfig, subject, body string) error {
+	if smtp == (SMTPConfig{}) {
 		return nil
 	}
 	msg := gomail.NewMessage()
