@@ -5,26 +5,27 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"os/user"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dsnet/golib/cron"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 	gomail "gopkg.in/gomail.v2"
+	"tailscale.com/syncs"
 )
 
 type dataset struct {
 	name   string
 	target execTarget
 
-	latestSnapshot *atomicString
+	latestSnapshot syncs.AtomicValue[string]
 }
 
 // PoolPath returns the pool path (e.g., ""//host/pool").
@@ -94,7 +95,7 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 	// Parse all of the private keys.
 	var keys []ssh.Signer
 	for _, kf := range conf.SSH.KeyFiles {
-		b, err := ioutil.ReadFile(kf)
+		b, err := os.ReadFile(kf)
 		if err != nil {
 			logger.Fatalf("private key error: %v", err)
 		}
@@ -126,9 +127,8 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 	for _, ds := range conf.Datasets {
 		makeDataset := func(dp datasetPath) dataset {
 			ds := dataset{
-				name:           strings.Trim(dp.Path, "/"),
-				target:         execTarget{host: dp.Hostname()},
-				latestSnapshot: new(atomicString),
+				name:   strings.Trim(dp.Path, "/"),
+				target: execTarget{host: dp.Hostname()},
 			}
 			isLocalhost := ds.target.host == "localhost"
 			for _, alias := range localAliases {
@@ -140,10 +140,7 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 			}
 
 			// Setup all parameters for SSH.
-			ds.target.port = dp.Port()
-			if ds.target.port == "" {
-				ds.target.port = "22"
-			}
+			ds.target.port = cmp.Or(dp.Port(), "22")
 			ds.target.auth = append([]ssh.AuthMethod{}, auth...)
 			ds.target.hostKeys = hostKeys
 			if dp.User != nil {
@@ -212,22 +209,17 @@ func (zs *zsyncer) Run() {
 		go zs.ServeHTTP()
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(len(zs.poolMonitors) + len(zs.replicaManagers) + len(zs.snapshotManagers))
-	wrapFunc := func(f func()) {
-		defer wg.Done()
-		f()
-	}
+	var group syncs.WaitGroup
+	defer group.Wait()
 	for _, pm := range zs.poolMonitors {
-		go wrapFunc(pm.Run)
+		group.Go(pm.Run)
 	}
 	for _, rm := range zs.replicaManagers {
-		go wrapFunc(rm.Run)
+		group.Go(rm.Run)
 	}
 	for _, sm := range zs.snapshotManagers {
-		go wrapFunc(sm.Run)
+		group.Go(sm.Run)
 	}
-	wg.Wait()
 }
 
 func (zs *zsyncer) Close() error {
@@ -299,20 +291,3 @@ type (
 
 func (f funcReader) Read(b []byte) (int, error)  { return f(b) }
 func (f funcWriter) Write(b []byte) (int, error) { return f(b) }
-
-type atomicString struct {
-	mu sync.Mutex
-	v  string
-}
-
-func (p *atomicString) Load() string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.v
-}
-
-func (p *atomicString) Store(s string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.v = s
-}

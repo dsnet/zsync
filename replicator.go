@@ -240,7 +240,7 @@ func (rm *replicaManager) transfer(idx int, args transferArgs) {
 		r.CloseWithError(err)
 		errc <- err
 	}()
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := <-errc; err != nil {
 			rm.statusMu.Lock()
 			rm.statuses[idx].FaultReason = err.Error()
@@ -257,15 +257,15 @@ func (rm *replicaManager) transfer(idx int, args transferArgs) {
 		unitconv.FormatPrefix(float64(n), unitconv.IEC, 1), d, args.DstLabel)
 }
 
-func zsendArgs(xs ...interface{}) []string {
-	return flattenArgs(append([]interface{}{"zfs", "send"}, xs...)...)
+func zsendArgs(xs ...any) []string {
+	return flattenArgs(append([]any{"zfs", "send"}, xs...)...)
 }
 
-func zrecvArgs(xs ...interface{}) []string {
-	return flattenArgs(append([]interface{}{"zfs", "recv"}, xs...)...)
+func zrecvArgs(xs ...any) []string {
+	return flattenArgs(append([]any{"zfs", "recv"}, xs...)...)
 }
 
-func flattenArgs(xs ...interface{}) (out []string) {
+func flattenArgs(xs ...any) (out []string) {
 	for _, x := range xs {
 		switch x := x.(type) {
 		case string:

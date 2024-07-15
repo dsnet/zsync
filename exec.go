@@ -133,7 +133,7 @@ func (x *executor) keepAliveMonitor() {
 	}
 
 	// Repeatedly check if the remote server is still alive.
-	var aliveCount int32
+	var aliveCount atomic.Int32
 	ticker := time.NewTicker(time.Duration(x.keepAlive.Interval) * time.Second)
 	defer ticker.Stop()
 	for {
@@ -141,7 +141,7 @@ func (x *executor) keepAliveMonitor() {
 		case <-x.ctx.Done():
 			return
 		case <-ticker.C:
-			if n := atomic.AddInt32(&aliveCount, 1); n > int32(x.keepAlive.CountMax) {
+			if n := aliveCount.Add(1); n > int32(x.keepAlive.CountMax) {
 				x.client.Close() // Forcibly close the client
 				return
 			}
@@ -150,7 +150,7 @@ func (x *executor) keepAliveMonitor() {
 		go func() {
 			_, _, err := x.client.SendRequest("keepalive@openssh.com", true, nil)
 			if err == nil {
-				atomic.StoreInt32(&aliveCount, 0)
+				aliveCount.Store(0)
 			}
 		}()
 	}

@@ -6,22 +6,21 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/url"
 	"os"
 	"os/signal"
 	"path"
-	"reflect"
 	"strings"
 	"syscall"
 
-	"github.com/dsnet/golib/jsonfmt"
+	"github.com/tailscale/hujson"
 )
 
 // Version of the zsync binary. May be set by linker when building.
@@ -226,7 +225,7 @@ func (p *datasetPath) UnmarshalJSON(b []byte) error {
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(u, &url.URL{User: u.User, Host: u.Host, Path: u.Path, RawPath: u.RawPath}) {
+	if *u != (url.URL{User: u.User, Host: u.Host, Path: u.Path, RawPath: u.RawPath}) {
 		return errors.New("URL may only have user, host, and path components")
 	}
 	p.URL = u
@@ -251,16 +250,16 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 	logger = log.New(io.MultiWriter(os.Stderr, &logBuf), "", log.Ldate|log.Ltime|log.Lshortfile)
 
 	var hash string
-	if b, _ := ioutil.ReadFile(os.Args[0]); len(b) > 0 {
+	if b, _ := os.ReadFile(os.Args[0]); len(b) > 0 {
 		hash = fmt.Sprintf("%x", sha256.Sum256(b))
 	}
 
 	// Load configuration file.
-	c, err := ioutil.ReadFile(path)
+	c, err := os.ReadFile(path)
 	if err != nil {
 		logger.Fatalf("unable to read config: %v", err)
 	}
-	if c, err = jsonfmt.Format(c, jsonfmt.Standardize()); err != nil {
+	if c, err = hujson.Standardize(c); err != nil {
 		logger.Fatalf("unable to parse config: %v", err)
 	}
 	if err := json.Unmarshal(c, &conf); err != nil {
@@ -271,30 +270,16 @@ func loadConfig(path string) (conf config, logger *log.Logger, closer func() err
 	}
 
 	// Set configuration defaults.
-	if conf.SMTP.Port == 0 {
-		conf.SMTP.Port = 587
-	}
-	if conf.SSH.KeepAlive == nil {
-		conf.SSH.KeepAlive = &keepAliveConfig{Interval: 30, CountMax: 2}
-	}
-	if conf.ConcurrentTransfers <= 0 {
-		conf.ConcurrentTransfers = 1
-	}
-	if conf.AutoSnapshot == nil {
-		conf.AutoSnapshot = &snapshotOptions{}
-	}
-	if conf.AutoSnapshot.Cron == "" {
-		conf.AutoSnapshot.Cron = "@daily"
-	}
-	if conf.AutoSnapshot.TimeZone == "" {
-		conf.AutoSnapshot.TimeZone = "Local"
-	}
+	conf.SMTP.Port = cmp.Or(conf.SMTP.Port, 587)
+	conf.SSH.KeepAlive = cmp.Or(conf.SSH.KeepAlive, &keepAliveConfig{Interval: 30, CountMax: 2})
+	conf.ConcurrentTransfers = cmp.Or(max(0, conf.ConcurrentTransfers), 1)
+	conf.AutoSnapshot = cmp.Or(conf.AutoSnapshot, &snapshotOptions{})
+	conf.AutoSnapshot.Cron = cmp.Or(conf.AutoSnapshot.Cron, "@daily")
+	conf.AutoSnapshot.TimeZone = cmp.Or(conf.AutoSnapshot.TimeZone, "Local")
 	for _, ds := range conf.Datasets {
-		if ds.AutoSnapshot != nil && ds.AutoSnapshot.Cron == "" {
-			ds.AutoSnapshot.Cron = "@daily"
-		}
-		if ds.AutoSnapshot != nil && ds.AutoSnapshot.TimeZone == "" {
-			ds.AutoSnapshot.TimeZone = "Local"
+		if ds.AutoSnapshot != nil {
+			ds.AutoSnapshot.Cron = cmp.Or(ds.AutoSnapshot.Cron, "@daily")
+			ds.AutoSnapshot.TimeZone = cmp.Or(ds.AutoSnapshot.Cron, "Local")
 		}
 	}
 
