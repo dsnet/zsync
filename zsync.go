@@ -169,12 +169,15 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 		}
 
 		// Parse replica manager options.
-		sendFlags, recvFlags := conf.SendFlags, conf.RecvFlags
+		sendFlags, recvFlags, initRecvFlags := conf.SendFlags, conf.RecvFlags, conf.InitRecvFlags
 		if ds.SendFlags != nil {
 			sendFlags = ds.SendFlags
 		}
 		if ds.RecvFlags != nil {
 			recvFlags = ds.RecvFlags
+		}
+		if ds.InitRecvFlags != nil {
+			initRecvFlags = ds.InitRecvFlags
 		}
 
 		// Parse snapshot manager options.
@@ -195,7 +198,7 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 
 		// Register the pool monitors, dataset replicator, and dataset manager.
 		zs.RegisterPoolMonitors(src, dsts)
-		zs.RegisterReplicaManager(src, dsts, sendFlags, recvFlags)
+		zs.RegisterReplicaManager(src, dsts, sendFlags, recvFlags, initRecvFlags)
 		zs.RegisterSnapshotManager(src, dsts, sched, tz, ssOpts.Count, ssOpts.SkipEmpty)
 	}
 	return zs

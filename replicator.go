@@ -22,8 +22,9 @@ type replicaManager struct {
 	srcDataset  dataset
 	dstDatasets []dataset
 
-	sendFlags []string
-	recvFlags []string
+	sendFlags     []string
+	recvFlags     []string
+	initRecvFlags []string
 
 	signal chan struct{}
 	timer  *time.Timer
@@ -39,15 +40,16 @@ type replicationStatus struct {
 	FaultReason string
 }
 
-func (zs *zsyncer) RegisterReplicaManager(src dataset, dsts []dataset, sendFlags, recvFlags []string) {
+func (zs *zsyncer) RegisterReplicaManager(src dataset, dsts []dataset, sendFlags, recvFlags, initRecvFlags []string) {
 	rm := &replicaManager{
 		zs: zs,
 
 		srcDataset:  src,
 		dstDatasets: dsts,
 
-		sendFlags: sendFlags,
-		recvFlags: recvFlags,
+		sendFlags:     sendFlags,
+		recvFlags:     recvFlags,
+		initRecvFlags: initRecvFlags,
 
 		signal: make(chan struct{}, 1),
 		timer:  time.NewTimer(0),
@@ -162,7 +164,7 @@ func (rm *replicaManager) replicate(idx int, replicated, failed *bool) {
 				SrcLabel: src.SnapshotPath(srcSnapshots[0]),
 				DstLabel: dst.DatasetPath(),
 				SendArgs: zsendArgs(rm.sendFlags, src.SnapshotName(srcSnapshots[0])),
-				RecvArgs: zrecvArgs(rm.recvFlags, "-o", "mountpoint=none", "-o", "readonly=on", dst.name),
+				RecvArgs: zrecvArgs(rm.initRecvFlags, dst.name),
 				SrcExec:  srcExec, DstExec: dstExec,
 			})
 			*replicated = true

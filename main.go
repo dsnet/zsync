@@ -137,10 +137,14 @@ The JSON format used permits the use of comments and takes the following form:
 	// pass the "-s" flag to enable use of this ZFS feature.
 	"RecvFlags": [], // E.g., ["-s"]
 
+	// InitRecvFlags is a list of flags to pass in when invoking "zfs recv"
+	// the first time if the destination dataset does not already exist.
+	"InitRecvFlags": [], // E.g., ["-o", "mountpoint=none", "-o", "readonly=on"]
+
 	// Datasets is a list of datasets to replicate with "zfs send" and
 	// "zfs recv". By default, there are no datasets specified.
 	"Datasets": [{
-		// The AutoSnapshot, SendFlags, and RecvFlags parameters
+		// The AutoSnapshot, SendFlags, RecvFlags, and InitRecvFlags parameters
 		// may also be specified on a per-dataset basis.
 
 		// The Source represents the ZFS dataset to replicate from.
@@ -233,9 +237,10 @@ func (p *datasetPath) UnmarshalJSON(b []byte) error {
 }
 
 type datasetOptions struct {
-	AutoSnapshot *snapshotOptions `json:",omitempty"`
-	SendFlags    []string         `json:",omitempty"`
-	RecvFlags    []string         `json:",omitempty"`
+	AutoSnapshot  *snapshotOptions `json:",omitempty"`
+	SendFlags     []string         `json:",omitempty"`
+	RecvFlags     []string         `json:",omitempty"`
+	InitRecvFlags []string         `json:",omitempty"`
 }
 
 type snapshotOptions struct {
