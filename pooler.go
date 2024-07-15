@@ -108,13 +108,11 @@ func (pm *poolMonitor) Run() {
 			})
 
 			// Query for the pool status.
+			// Note that unhealthy pools are not a exec error.
 			if exec == nil {
-				var err error
-				exec, err = openExecutor(pm.zs.ctx, pm.target)
-				checkError(err)
+				exec = mustGet(openExecutor(pm.zs.ctx, pm.target))
 			}
-			out, err := exec.Exec("zpool", "status", "-P", "-x", pm.pool)
-			checkError(err) // Unhealthy pools are not a exec error
+			out := mustGet(exec.Exec("zpool", "status", "-P", "-x", pm.pool))
 
 			// Parse the pool status.
 			pm.statusMu.Lock()

@@ -86,13 +86,11 @@ func (sm *snapshotManager) Run() {
 			})
 
 			// Open an executor for the source dataset.
-			srcExec, err := openExecutor(sm.zs.ctx, sm.srcDataset.target)
-			checkError(err)
+			srcExec := mustGet(openExecutor(sm.zs.ctx, sm.srcDataset.target))
 			defer srcExec.Close()
 
 			// Determine if we need to make a dataset.
-			ss, err := listSnapshots(srcExec, sm.srcDataset.name)
-			checkError(err)
+			ss := mustGet(listSnapshots(srcExec, sm.srcDataset.name))
 			if len(ss) > 0 {
 				sm.srcDataset.latestSnapshot.Store(ss[len(ss)-1])
 			}
@@ -100,8 +98,7 @@ func (sm *snapshotManager) Run() {
 				makeSnapshot = true // No snapshots, so make first one
 			}
 			if makeSnapshot && len(ss) > 0 && sm.skipEmpty {
-				isempty, err := isEmptySnapshot(srcExec, sm.srcDataset.name, ss[len(ss)-1])
-				checkError(err)
+				isempty := mustGet(isEmptySnapshot(srcExec, sm.srcDataset.name, ss[len(ss)-1]))
 				if isempty {
 					snapshot := time.Now().UTC().Format(time.RFC3339)
 					sm.zs.log.Printf("skipping snapshot (no changes detected): %s", sm.srcDataset.SnapshotPath(snapshot))
@@ -113,7 +110,7 @@ func (sm *snapshotManager) Run() {
 			if makeSnapshot {
 				snapshot := time.Now().UTC().Format(time.RFC3339)
 				sm.zs.log.Printf("creating snapshot: %s", sm.srcDataset.SnapshotPath(snapshot))
-				checkError(createSnapshot(srcExec, sm.srcDataset.name, snapshot))
+				mustDo(createSnapshot(srcExec, sm.srcDataset.name, snapshot))
 				makeSnapshot = false
 
 				// Signal the replica manager to mirror the snapshot.
@@ -159,19 +156,19 @@ func (sm *snapshotManager) Run() {
 
 				// The deletion logic below relies on information about
 				// snapshots being fully consistent.
-				checkError(errFirst)
+				mustDo(errFirst)
 
 				// Destroy old snapshots, ensuring at least one common snapshot
 				// exists between the source and all destination datasets.
 				destroy2D, _ := filterSnapshots(append([]snapshots{srcSnapshots}, dstSnapshots2D...), sm.count)
 				if ss := destroy2D[0]; len(ss) > 0 {
 					sm.zs.log.Printf("destroying snapshots: %s", sm.srcDataset.SnapshotPath(strings.Join(ss, ",")))
-					checkError(destroySnapshots(srcExec, sm.srcDataset.name, ss))
+					mustDo(destroySnapshots(srcExec, sm.srcDataset.name, ss))
 				}
 				for i := range sm.dstDatasets {
 					if ss := destroy2D[i+1]; len(ss) > 0 {
 						sm.zs.log.Printf("destroying snapshots: %s", sm.dstDatasets[i].SnapshotPath(strings.Join(ss, ",")))
-						checkError(destroySnapshots(dstExecs[i], sm.dstDatasets[i].name, ss))
+						mustDo(destroySnapshots(dstExecs[i], sm.dstDatasets[i].name, ss))
 					}
 				}
 			}

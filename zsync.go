@@ -239,10 +239,14 @@ func recoverError(f func(error)) {
 		panic(ex)
 	}
 }
-func checkError(err error) {
+func mustDo(err error) {
 	if err != nil {
 		panic(zsyncError{err})
 	}
+}
+func mustGet[T any](v T, err error) T {
+	mustDo(err)
+	return v
 }
 
 func trySignal(c chan<- struct{}) {

@@ -124,11 +124,9 @@ func (rm *replicaManager) replicate(idx, attempts int, replicated, failed *bool)
 	})
 
 	// Open an executor for the source and destination dataset.
-	srcExec, err := openExecutor(rm.zs.ctx, src.target)
-	checkError(err)
+	srcExec := mustGet(openExecutor(rm.zs.ctx, src.target))
 	defer srcExec.Close()
-	dstExec, err := openExecutor(rm.zs.ctx, dst.target)
-	checkError(err)
+	dstExec := mustGet(openExecutor(rm.zs.ctx, dst.target))
 	defer dstExec.Close()
 
 	// Resume a partial receive if there is a token.
@@ -147,8 +145,7 @@ func (rm *replicaManager) replicate(idx, attempts int, replicated, failed *bool)
 
 	for {
 		// Obtain a list of source and destination snapshots.
-		srcSnapshots, err := listSnapshots(srcExec, src.name)
-		checkError(err)
+		srcSnapshots := mustGet(listSnapshots(srcExec, src.name))
 		if len(srcSnapshots) == 0 {
 			return
 		} else {
@@ -158,7 +155,7 @@ func (rm *replicaManager) replicate(idx, attempts int, replicated, failed *bool)
 		if xerr, ok := err.(exitError); ok && strings.Contains(xerr.Stderr, "does not exist") {
 			err = nil
 		}
-		checkError(err)
+		mustDo(err)
 
 		// Clone first snapshot if destination has no snapshots.
 		if len(dstSnapshots) == 0 {
@@ -180,7 +177,7 @@ func (rm *replicaManager) replicate(idx, attempts int, replicated, failed *bool)
 		ss := dstSnapshots[len(dstSnapshots)-1]
 		i := findString(srcSnapshots, ss)
 		if i < 0 {
-			checkError(fmt.Errorf("snapshot %s does not exist", src.SnapshotPath(ss)))
+			mustDo(fmt.Errorf("snapshot %s does not exist", src.SnapshotPath(ss)))
 		}
 		if i+1 == len(srcSnapshots) {
 			return
@@ -250,7 +247,7 @@ func (rm *replicaManager) transfer(idx int, args transferArgs) {
 			rm.statusMu.Lock()
 			rm.statuses[idx].FaultReason = err.Error()
 			rm.statusMu.Unlock()
-			checkError(err)
+			mustDo(err)
 		}
 	}
 
