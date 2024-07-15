@@ -99,6 +99,7 @@ The JSON format used permits the use of comments and takes the following form:
 		// LocalhostAliases considers hostnames provided to be equivalent
 		// to "localhost". This allows a vanity hostname to be used, yet
 		// allowing the use of OS subprocesses instead of SSH subprocesses.
+		// The host portion of HTTP.Address is automatically inserted here.
 		"LocalhostAliases": null, // E.g., ["myhostname.local"]
 	},
 
@@ -152,8 +153,9 @@ The JSON format used permits the use of comments and takes the following form:
 		//	//[userinfo@]host[:port]/pool/dataset
 		// where the userinfo and port are optional.
 		//
-		// If the host is "localhost" or the same value as LocalhostAliases,
-		// then this dataset is accessed using an OS subprocess.
+		// If the host is "localhost" or the same value as LocalhostAliases
+		// and no port is specified, then this dataset is accessed directly
+		// using an OS subprocess.
 		//
 		// Otherwise, the userinfo, host, port, and SSH options from above are
 		// used to access the dataset using a SSH subprocess.

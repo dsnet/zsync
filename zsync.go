@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"os/user"
+	"slices"
 	"strings"
 	"time"
 
@@ -121,7 +122,10 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 	}
 
 	keepAlive = *conf.SSH.KeepAlive
-	localAliases = conf.SSH.LocalhostAliases
+	localAliases = append([]string{"localhost"}, conf.SSH.LocalhostAliases...)
+	if host, _, ok := strings.Cut(conf.HTTP.Address, ":"); ok && host != "" {
+		localAliases = append(localAliases, host)
+	}
 
 	// Process each of the dataset sources and their mirrors.
 	for _, ds := range conf.Datasets {
@@ -130,11 +134,8 @@ func newZSyncer(conf config, logger *log.Logger) *zsyncer {
 				name:   strings.Trim(dp.Path, "/"),
 				target: execTarget{host: dp.Hostname()},
 			}
-			isLocalhost := ds.target.host == "localhost"
-			for _, alias := range localAliases {
-				isLocalhost = isLocalhost || ds.target.host == alias
-			}
-			if isLocalhost {
+			isLocalhost := slices.Contains(localAliases, ds.target.host)
+			if isLocalhost && dp.Port() == "" {
 				ds.target.isLocalhost = true
 				return ds
 			}
