@@ -79,6 +79,7 @@ func (pm *poolMonitor) Run() {
 	defer tryCloseExec()
 
 	var retryDelay time.Duration
+	var attempts int
 	for {
 		select {
 		case <-pm.signal:
@@ -88,6 +89,7 @@ func (pm *poolMonitor) Run() {
 		}
 
 		func() {
+			attempts++
 			defer recoverError(func(err error) {
 				pm.statusMu.Lock()
 				switch pm.status.State {
@@ -99,7 +101,7 @@ func (pm *poolMonitor) Run() {
 				pm.statusMu.Unlock()
 
 				id := dataset{name: pm.pool, target: pm.target}.PoolPath()
-				pm.zs.log.Printf("pool %s: unexpected error: %v", id, err)
+				pm.zs.log.Printf("pool %s: unexpected error (attempt %d): %v", id, attempts, err)
 				retryDelay = timeoutAfter(retryDelay)
 				pm.timer.Reset(retryDelay)
 				tryCloseExec()
@@ -141,6 +143,7 @@ func (pm *poolMonitor) Run() {
 			}
 			pm.statusMu.Unlock()
 			retryDelay = 0
+			attempts = 0
 			pm.timer.Reset(10 * time.Minute)
 		}()
 	}

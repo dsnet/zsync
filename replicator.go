@@ -71,6 +71,7 @@ func (rm *replicaManager) Status() []replicationStatus {
 
 func (rm *replicaManager) Run() {
 	var retryDelay time.Duration
+	var attempts int
 	for {
 		select {
 		case <-rm.signal:
@@ -79,15 +80,17 @@ func (rm *replicaManager) Run() {
 			return
 		}
 
+		attempts++
 		var replicated, failed bool
 		for i := range rm.dstDatasets {
-			rm.replicate(i, &replicated, &failed)
+			rm.replicate(i, attempts, &replicated, &failed)
 		}
 		if failed {
 			retryDelay = timeoutAfter(retryDelay)
 			rm.timer.Reset(retryDelay)
 		} else {
 			retryDelay = 0
+			attempts = 0
 			rm.timer.Stop()
 		}
 
@@ -98,7 +101,7 @@ func (rm *replicaManager) Run() {
 	}
 }
 
-func (rm *replicaManager) replicate(idx int, replicated, failed *bool) {
+func (rm *replicaManager) replicate(idx, attempts int, replicated, failed *bool) {
 	// Acquire the semaphore to limit number of concurrent transfers.
 	select {
 	case rm.zs.replSema <- struct{}{}:
@@ -116,7 +119,7 @@ func (rm *replicaManager) replicate(idx int, replicated, failed *bool) {
 				rm.zs.log.Printf("unable to send email: %v", merr)
 			}
 		}
-		rm.zs.log.Printf("dataset %s: replication error: %v", dst.DatasetPath(), err)
+		rm.zs.log.Printf("dataset %s: replication error (attempt %d): %v", dst.DatasetPath(), attempts, err)
 		*failed = true
 	})
 

@@ -60,6 +60,7 @@ func (sm *snapshotManager) Run() {
 
 	var makeSnapshot bool
 	var retryDelay time.Duration
+	var attempts int
 	for {
 		select {
 		case <-sm.signal:
@@ -71,6 +72,7 @@ func (sm *snapshotManager) Run() {
 		}
 
 		func() {
+			attempts++
 			defer recoverError(func(err error) {
 				if xerr, ok := err.(exitError); ok {
 					subject := fmt.Sprintf("Snapshot failure for %q", sm.srcDataset.DatasetPath())
@@ -78,7 +80,7 @@ func (sm *snapshotManager) Run() {
 						sm.zs.log.Printf("unable to send email: %v", merr)
 					}
 				}
-				sm.zs.log.Printf("dataset %s: snapshot error: %v", sm.srcDataset.DatasetPath(), err)
+				sm.zs.log.Printf("dataset %s: snapshot error (attempt %d): %v", sm.srcDataset.DatasetPath(), attempts, err)
 				retryDelay = timeoutAfter(retryDelay)
 				sm.timer.Reset(retryDelay)
 			})
@@ -175,6 +177,7 @@ func (sm *snapshotManager) Run() {
 			}
 
 			retryDelay = 0
+			attempts = 0
 			sm.timer.Stop()
 		}()
 	}
