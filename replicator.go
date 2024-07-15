@@ -5,13 +5,19 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dsnet/golib/unitconv"
+	"tailscale.com/syncs"
+	"tailscale.com/tstime/rate"
 )
 
 // replicaManager is responsible for sending snapshots from one target
@@ -29,15 +35,17 @@ type replicaManager struct {
 	signal chan struct{}
 	timer  *time.Timer
 
-	statusMu sync.Mutex
 	statuses []replicationStatus // len(statuses) == len(dst)
 }
 
 type replicationStatus struct {
-	Started     time.Time
-	Finished    time.Time
-	Transferred int64
-	FaultReason string
+	atomicMu         sync.Mutex // held while mutating multiple fields together
+	started          syncs.AtomicValue[time.Time]
+	finished         syncs.AtomicValue[time.Time]
+	transferByteRate rate.Value
+	transferredBytes atomic.Int64
+	estimatedBytes   atomic.Int64
+	faultReason      syncs.AtomicValue[string]
 }
 
 func (zs *zsyncer) RegisterReplicaManager(src dataset, dsts []dataset, sendFlags, recvFlags, initRecvFlags []string) {
@@ -61,12 +69,6 @@ func (zs *zsyncer) RegisterReplicaManager(src dataset, dsts []dataset, sendFlags
 		zs.log.Fatalf("%s already registered", id)
 	}
 	zs.replicaManagers[id] = rm
-}
-
-func (rm *replicaManager) Status() []replicationStatus {
-	rm.statusMu.Lock()
-	defer rm.statusMu.Unlock()
-	return append([]replicationStatus(nil), rm.statuses...)
 }
 
 func (rm *replicaManager) Run() {
@@ -209,14 +211,29 @@ type transferArgs struct {
 
 func (rm *replicaManager) transfer(idx int, args transferArgs) {
 	// Update status for the latest transfer operation.
-	rm.statusMu.Lock()
-	rm.statuses[idx] = replicationStatus{Started: time.Now()}
-	rm.statusMu.Unlock()
-	defer func() {
-		rm.statusMu.Lock()
-		rm.statuses[idx].Finished = time.Now()
-		rm.statusMu.Unlock()
-	}()
+	status := &rm.statuses[idx]
+	status.atomicMu.Lock()
+	status.started.Store(time.Now())
+	status.finished.Store(time.Time{})
+	status.transferByteRate.UnmarshalJSON([]byte("{}"))
+	status.transferredBytes.Store(0)
+	status.estimatedBytes.Store(0)
+	status.faultReason.Store("")
+	status.atomicMu.Unlock()
+	defer func() { status.finished.Store(time.Now()) }()
+
+	// Best-effort estimate at total size.
+	var sizeBuf bytes.Buffer
+	drySendArgs := slices.Insert(slices.Clone(args.SendArgs), 2, "-nP")
+	args.SrcExec.ExecStream(nil, &sizeBuf, drySendArgs...)
+	for _, line := range strings.Split(sizeBuf.String(), "\n") {
+		name, value, ok := strings.Cut(strings.TrimSpace(line), "\t")
+		if ok && name == "size" {
+			if size, err := strconv.ParseUint(value, 10, 64); err == nil {
+				status.estimatedBytes.Store(int64(size))
+			}
+		}
+	}
 
 	// Perform actual transfer.
 	now := time.Now()
@@ -226,9 +243,8 @@ func (rm *replicaManager) transfer(idx int, args transferArgs) {
 	defer w.Close()
 	w2 := funcWriter(func(b []byte) (int, error) {
 		n, err := w.Write(b)
-		rm.statusMu.Lock()
-		rm.statuses[idx].Transferred += int64(n) // TODO: use atomic updates
-		rm.statusMu.Unlock()
+		status.transferredBytes.Add(int64(n))
+		status.transferByteRate.Add(float64(n))
 		return n, err
 	})
 	errc := make(chan error, 2)
@@ -244,16 +260,12 @@ func (rm *replicaManager) transfer(idx int, args transferArgs) {
 	}()
 	for range 2 {
 		if err := <-errc; err != nil {
-			rm.statusMu.Lock()
-			rm.statuses[idx].FaultReason = err.Error()
-			rm.statusMu.Unlock()
+			status.faultReason.Store(err.Error())
 			mustDo(err)
 		}
 	}
 
-	rm.statusMu.Lock()
-	n := rm.statuses[idx].Transferred
-	rm.statusMu.Unlock()
+	n := status.transferredBytes.Load()
 	d := time.Now().Sub(now).Truncate(time.Second)
 	rm.zs.log.Printf("transfer complete (copied %vB in %v) to destination: %s",
 		unitconv.FormatPrefix(float64(n), unitconv.IEC, 1), d, args.DstLabel)

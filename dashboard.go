@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"cmp"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -126,30 +127,46 @@ func (zs *zsyncer) ServeHTTP() {
 				}
 				sort.Strings(ids)
 				for _, source := range ids {
-					for i, status := range zs.replicaManagers[source].Status() {
+					for i := range zs.replicaManagers[source].statuses {
+						status := &zs.replicaManagers[source].statuses[i]
+						status.atomicMu.Lock()
+						startedAt := status.started.Load()
+						finishedAt := status.finished.Load()
+						transferByteRate := status.transferByteRate.Rate()
+						transferredBytes := float64(status.transferredBytes.Load())
+						estimatedBytes := float64(status.estimatedBytes.Load())
+						faultReason := status.faultReason.Load()
+						status.atomicMu.Unlock()
+
 						var started, transferred, state, style string
 						destination := zs.replicaManagers[source].dstDatasets[i].DatasetPath()
-						if !status.Started.IsZero() {
-							started = formatDate(status.Started)
+						if !startedAt.IsZero() {
+							started = formatDate(startedAt)
 							var duration time.Duration
-							if status.Finished.IsZero() {
-								duration = time.Now().Sub(status.Started)
+							if finishedAt.IsZero() {
+								duration = time.Now().Sub(startedAt)
 							} else {
-								duration = status.Finished.Sub(status.Started)
+								duration = finishedAt.Sub(startedAt)
 							}
-							transferred = unitconv.FormatPrefix(float64(status.Transferred), unitconv.IEC, 2) + "B at " +
-								unitconv.FormatPrefix(float64(status.Transferred)/duration.Seconds(), unitconv.IEC, 2) + "B/s"
+							transferAmount := unitconv.FormatPrefix(transferredBytes, unitconv.IEC, 2) + "B"
+							transferDuration := duration.Round(time.Second).String()
+							transferRate := unitconv.FormatPrefix(transferredBytes/duration.Seconds(), unitconv.IEC, 2) + "B/s"
 							switch {
-							case status.Finished.IsZero():
+							case finishedAt.IsZero():
 								state = "❗ COPYING"
+								if estimatedBytes > 0 {
+									state += fmt.Sprintf(" (%0.1f%%)", 100*transferredBytes/max(estimatedBytes, transferredBytes))
+								}
 								style = "background-color:#ffffd0;" // yellow
-							case status.FaultReason != "":
-								state = "❌ FAULT<pre>" + status.FaultReason + "</pre>"
+								transferRate = unitconv.FormatPrefix(transferByteRate, unitconv.IEC, 2) + "B/s"
+							case faultReason != "":
+								state = "❌ FAULT<pre>" + faultReason + "</pre>"
 								style = "background-color:#ffd0d0;" // red
 							default:
 								state = "✅ FINISHED"
 								style = "background-color:#d0ffd0;" // green
 							}
+							transferred = transferAmount + " in " + transferDuration + " at " + transferRate
 						}
 						styles[[2]int{len(table), 4}] = style
 						table = append(table, []string{started, source, destination, transferred, state})
