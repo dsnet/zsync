@@ -279,6 +279,9 @@ func timeoutAfter(d time.Duration) time.Duration {
 }
 
 func sendEmail(smtp smtpConfig, subject, body string) error {
+	if smtp == (smtpConfig{}) {
+		return nil
+	}
 	msg := gomail.NewMessage()
 	msg.SetAddressHeader("From", smtp.Username, "ZSync Daemon")
 	msg.SetAddressHeader("To", smtp.ToAddress, smtp.ToName)

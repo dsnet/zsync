@@ -62,6 +62,7 @@ The JSON format used permits the use of comments and takes the following form:
 	// Emails are sent when pools switch health states,
 	// when snapshots cannot be created or deleted, and
 	// when replication fails. Errors due to network failures are ignored.
+	// If unspecified, then emails are not sent.
 	"SMTP": {
 		"Host": "", // E.g., "mail.name.com"
 		"Port": 587,
