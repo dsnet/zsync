@@ -279,7 +279,7 @@ func timeoutAfter(d time.Duration) time.Duration {
 }
 
 func sendEmail(smtp SMTPConfig, subject, body string) error {
-	if smtp == (SMTPConfig{}) {
+	if smtp.Host == "" {
 		return nil
 	}
 	msg := gomail.NewMessage()
